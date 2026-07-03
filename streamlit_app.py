@@ -159,7 +159,6 @@ TEMPLATE_FILE = "AL0-SBU6B5D6EZU6S.xlsx"
 
 # ===================== 页面标题区域 =====================
 st.markdown('<div class="main-title">📦 FBA清关单批量生成工具</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">一键批量生成多FBA清关发票，制造商信息完整不丢失，导出无多余下拉框</div>', unsafe_allow_html=True)
 st.divider()
 
 # ===================== 双栏布局 =====================
@@ -169,7 +168,6 @@ col_left, col_right = st.columns([0.48, 0.48], gap="medium")
 with col_left:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("📁 第一步：上传数据源Excel")
-    st.markdown("<p class='info-text'>文件内需包含【FBA编号】列，用于自动分组生成单证</p>", unsafe_allow_html=True)
     upload_data = st.file_uploader("", type=["xlsx", "xls"])
     if upload_data is not None:
         st.success(f"✅ 已读取文件：{upload_data.name}")
@@ -290,6 +288,3 @@ if gen_btn:
             st.markdown('</div>', unsafe_allow_html=True)
             tmp_dir.cleanup()
 
-# ===================== 底部说明（修复语法错误版本） =====================
-st.divider()
-st.markdown("<p class='info-text'>💡 使用说明：导出Excel无账号下拉框；发货人/进口商/制造商信息完全统一；原产国固定CN；模板边框、格式完整保留不丢失</p>", unsafe_allow_html=True)
