@@ -1,5 +1,5 @@
-flask
-openpyxl
+streamlit
 pandas
-werkzeug
-gunicorn
+openpyxl
+zipfile36
+tempfile
