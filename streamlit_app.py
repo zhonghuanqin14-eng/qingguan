@@ -8,6 +8,72 @@ import zipfile
 import tempfile
 from io import BytesIO
 
+# ===================== 全局页面美化配置 =====================
+st.set_page_config(
+    page_title="FBA清关单批量生成工具",
+    page_icon="📦",
+    layout="wide",
+    initial_sidebar_state="collapsed" # 收起侧边栏，页面更整洁
+)
+
+# 自定义CSS美化页面控件、卡片、配色
+custom_css = """
+<style>
+/* 主标题样式 */
+.main-title {
+    font-size: 32px;
+    color: #165DFF;
+    font-weight: 700;
+    margin-bottom: 10px;
+}
+.sub-title {
+    font-size: 16px;
+    color: #666666;
+    margin-bottom: 30px;
+}
+/* 卡片容器 */
+.card {
+    background-color: #f8fafc;
+    padding: 20px;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    margin-bottom: 20px;
+}
+/* 按钮美化 */
+.stButton>button {
+    background-color: #165DFF;
+    color: white;
+    font-size: 16px;
+    padding: 8px 24px;
+    border-radius: 8px;
+    border: none;
+}
+.stButton>button:hover {
+    background-color: #0E4BDB;
+}
+/* 下载按钮区分配色 */
+.download-btn>button {
+    background-color: #00B42A;
+}
+.download-btn>button:hover {
+    background-color: #009A24;
+}
+/* 提示文字 */
+.info-text {
+    color: #4E5969;
+    font-size: 14px;
+}
+/* 账号预览框 */
+.preview-box {
+    background: #E8F3FF;
+    padding: 16px;
+    border-radius: 8px;
+    border-left: 4px solid #165DFF;
+}
+</style>
+"""
+st.markdown(custom_css, unsafe_allow_html=True)
+
 # ===================== 账号配置（完整保留你所有账号） =====================
 ACCOUNT_INFO = {
     "39": {
@@ -99,27 +165,54 @@ CELL_MAP = {
 # 模板文件路径
 TEMPLATE_FILE = "AL0-SBU6B5D6EZU6S.xlsx"
 
-# ===================== Streamlit页面UI =====================
-st.set_page_config(page_title="FBA清关单批量生成工具", layout="wide")
-st.title("FBA清关单批量生成工具（Streamlit云端版）")
-st.subheader("功能：上传数据源 → 选择账号 → 一键打包下载全部FBA清关文件")
+# ===================== 页面标题区域 =====================
+st.markdown('<div class="main-title">📦 FBA清关单批量生成工具</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">一键批量生成多FBA清关发票，制造商信息完整不丢失，导出无多余下拉框</div>', unsafe_allow_html=True)
+st.divider()
 
-# 1. 上传数据源Excel
-upload_data = st.file_uploader("1. 上传数据源附件（含FBA明细Excel）", type=["xlsx", "xls"])
-# 2. 账号下拉选择
-acc_list = list(ACCOUNT_INFO.keys())
-select_acc = st.selectbox("2. 选择发货账号", options=acc_list, format_func=lambda x: f"账号{x}：{ACCOUNT_INFO[x]['shipper_name']}")
-# 3. 生成按钮
-gen_btn = st.button("开始批量生成清关文件")
+# ===================== 双栏布局：上传 + 账号选择 =====================
+col_left, col_right = st.columns([0.48, 0.48], gap="4%")
+
+# 左侧：上传文件卡片
+with col_left:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.subheader("📁 第一步：上传数据源Excel")
+    st.markdown('<p class="info-text">文件内需包含【FBA编号】列，用于自动分组生成单证</p>', unsafe_allow_html=True)
+    upload_data = st.file_uploader("", type=["xlsx", "xls"])
+    if upload_data is not None:
+        st.success(f"✅ 已读取文件：{upload_data.name}")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# 右侧：账号选择 + 实时预览
+with col_right:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.subheader("🏢 第二步：选择发货账号")
+    acc_list = list(ACCOUNT_INFO.keys())
+    select_acc = st.selectbox("", options=acc_list, format_func=lambda x: f"账号{x}")
+    # 选中后实时预览账号信息
+    current_acc = ACCOUNT_INFO[select_acc]
+    st.markdown('<div class="preview-box">', unsafe_allow_html=True)
+    st.write(f"**公司名称：** {current_acc['shipper_name']}")
+    st.write(f"**地址：** {current_acc['shipper_addr']}")
+    st.write(f"**联系人：** {current_acc['contact']} | 电话：{current_acc['phone']}")
+    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# ===================== 生成按钮区域 =====================
+st.markdown('<div class="card">', unsafe_allow_html=True)
+col_btn, _ = st.columns([0.2, 0.8])
+with col_btn:
+    gen_btn = st.button("🚀 开始批量生成清关文件")
+st.markdown('</div>', unsafe_allow_html=True)
 
 # ===================== 生成核心逻辑 =====================
 if gen_btn:
     if upload_data is None:
-        st.error("请先上传数据源Excel文件！")
+        st.error("❌ 请先上传数据源Excel文件！")
     elif not os.path.exists(TEMPLATE_FILE):
-        st.error(f"固定模板文件{TEMPLATE_FILE}缺失，请上传到仓库根目录！")
+        st.error(f"❌ 固定模板文件【{TEMPLATE_FILE}】缺失，请确认模板已上传仓库根目录！")
     else:
-        with st.spinner("正在解析数据、生成文件，请稍候..."):
+        with st.spinner("⏳ 正在解析数据、生成全部FBA清关单，请稍候..."):
             # 读取数据源
             df = pd.read_excel(upload_data)
             groups = df.groupby("FBA编号")
@@ -197,12 +290,20 @@ if gen_btn:
                     zf.write(f_path, f_name)
             zip_buffer.seek(0)
 
-            # 下载按钮
-            st.success(f"生成完成！共{len(out_file_list)}份FBA清关文件")
+            # 下载结果卡片
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.success(f"🎉 文件生成完成！共生成 {len(out_file_list)} 份独立FBA清关单证")
+            st.markdown('<div class="download-btn">', unsafe_allow_html=True)
             st.download_button(
-                label="点击下载全部文件ZIP压缩包",
+                label="📥 点击下载全部文件 ZIP 压缩包",
                 data=zip_buffer,
                 file_name="FBA批量清关文件.zip",
                 mime="application/zip"
             )
+            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
             tmp_dir.cleanup()
+
+# ===================== 底部说明 =====================
+st.divider()
+st.markdown('<p class="info-text">💡 使用说明：导出Excel无账号下拉框；发货人/进口商/制造商信息完全统一；原产国固定CN；模板边框、格式完整保留不丢失</p>', unsafe_allow_html=True)
