@@ -282,8 +282,9 @@ if gen_btn:
                 wb.close()
                 out_file_list.append(save_file)
 
-            # 打包为ZIP
+            # 打包为ZIP，文件名按选中账号自动生成
             zip_buffer = BytesIO()
+            zip_name = f"{select_acc}清关资料.zip"
             with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
                 for f_path in out_file_list:
                     f_name = os.path.basename(f_path)
@@ -297,7 +298,7 @@ if gen_btn:
             st.download_button(
                 label="📥 点击下载全部文件 ZIP 压缩包",
                 data=zip_buffer,
-                file_name="FBA批量清关文件.zip",
+                file_name=zip_name,
                 mime="application/zip"
             )
             st.markdown('</div>', unsafe_allow_html=True)
@@ -306,4 +307,4 @@ if gen_btn:
 
 # ===================== 底部说明 =====================
 st.divider()
-st.markdown('<p class="info-text">💡 使用说明：导出Excel无账号下拉框；发货人/进口商/制造商信息完全统一；原产国固定CN；模板边框、格式完整保留不丢失</p>', unsafe_allow_html=True)
+st.markdown('<p class="info-text">💡 使用说明：导出Excel无账号下拉框；发货人/进口商/制造商信息完全统一；原产国固定CN；模板边框、格式完整保留不丢失</p>', unsafe_allow_html=True)b
