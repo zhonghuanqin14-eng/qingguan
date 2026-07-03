@@ -170,8 +170,8 @@ st.markdown('<div class="main-title">📦 FBA清关单批量生成工具</div>',
 st.markdown('<div class="sub-title">一键批量生成多FBA清关发票，制造商信息完整不丢失，导出无多余下拉框</div>', unsafe_allow_html=True)
 st.divider()
 
-# ===================== 双栏布局：上传 + 账号选择 =====================
-col_left, col_right = st.columns([0.48, 0.48], gap="4%")
+# ===================== 双栏布局：上传 + 账号选择（已修复gap兼容问题） =====================
+col_left, col_right = st.columns([0.48, 0.48], gap="medium")
 
 # 左侧：上传文件卡片
 with col_left:
