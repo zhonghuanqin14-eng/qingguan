@@ -138,7 +138,8 @@ ACCOUNT_INFO = {
     }
 }
 
-CELL_MAP = {
+# 清关单模板配置（上方模块用）
+CLEARANCE_CELL_MAP = {
     "fba_no": "J8",
     "ship_name": "B7",
     "ship_addr": "B8",
@@ -155,6 +156,17 @@ CELL_MAP = {
     "total_row": 36,
     "gross_weight_col": 14,
     "volume_col": 16
+}
+
+# 截单资料模板配置（下方模块用，适配您的LCL AMS模板）
+CUTTING_CELL_MAP = {
+    "header_row": 3,          # 表头行号（Excel行号）
+    "data_start_row": 4,      # 数据起始行号
+    "data_end_row": 7,        # 数据结束行号
+    "gross_weight_col": 3,    # 毛重列：C列（列号3）
+    "volume_col": 4,           # 体积列：D列（列号4）
+    "gross_weight_header": "Gross weight",  # 毛重列名
+    "volume_header": "Volume"                 # 体积列名
 }
 
 TEMPLATE_FILE = "AL0-SBU6B5D6EZU6S.xlsx"
@@ -214,20 +226,20 @@ if gen_clear_btn:
             for fba_id, group_df in groups:
                 wb = load_workbook(TEMPLATE_FILE)
                 ws = wb.active
-                ws[CELL_MAP["ship_name"]].value = acc_data["shipper_name"]
-                ws[CELL_MAP["ship_addr"]].value = acc_data["shipper_addr"]
-                ws[CELL_MAP["ship_contact"]].value = f"Contact:{acc_data['contact']}"
-                ws[CELL_MAP["ship_tel"]].value = f"Phone:{acc_data['phone']}"
-                ws[CELL_MAP["imp_name"]].value = acc_data["shipper_name"]
-                ws[CELL_MAP["imp_addr"]].value = acc_data["shipper_addr"]
-                ws[CELL_MAP["imp_contact"]].value = f"Contact:{acc_data['contact']}"
-                ws[CELL_MAP["imp_tel"]].value = f"Phone:{acc_data['phone']}"
-                ws[CELL_MAP["manu_name"]].value = acc_data["shipper_name"]
-                ws[CELL_MAP["manu_addr"]].value = acc_data["shipper_addr"]
-                ws[CELL_MAP["fba_no"]].value = fba_id
+                ws[CLEARANCE_CELL_MAP["ship_name"]].value = acc_data["shipper_name"]
+                ws[CLEARANCE_CELL_MAP["ship_addr"]].value = acc_data["shipper_addr"]
+                ws[CLEARANCE_CELL_MAP["ship_contact"]].value = f"Contact:{acc_data['contact']}"
+                ws[CLEARANCE_CELL_MAP["ship_tel"]].value = f"Phone:{acc_data['phone']}"
+                ws[CLEARANCE_CELL_MAP["imp_name"]].value = acc_data["shipper_name"]
+                ws[CLEARANCE_CELL_MAP["imp_addr"]].value = acc_data["shipper_addr"]
+                ws[CLEARANCE_CELL_MAP["imp_contact"]].value = f"Contact:{acc_data['contact']}"
+                ws[CLEARANCE_CELL_MAP["imp_tel"]].value = f"Phone:{acc_data['phone']}"
+                ws[CLEARANCE_CELL_MAP["manu_name"]].value = acc_data["shipper_name"]
+                ws[CLEARANCE_CELL_MAP["manu_addr"]].value = acc_data["shipper_addr"]
+                ws[CLEARANCE_CELL_MAP["fba_no"]].value = fba_id
 
-                s_r = CELL_MAP["data_start_row"]
-                e_r = CELL_MAP["data_end_clear_row"]
+                s_r = CLEARANCE_CELL_MAP["data_start_row"]
+                e_r = CLEARANCE_CELL_MAP["data_end_clear_row"]
                 for r in range(s_r, e_r + 1):
                     for c in range(2, 17):
                         ws.cell(row=r, column=c, value=None)
@@ -249,7 +261,7 @@ if gen_clear_btn:
                     ws.cell(row=curr_r, column=16, value=round(row_data[14],3))
 
                 data_end_r = s_r + len(data_rows) - 1
-                total_r = CELL_MAP["total_row"]
+                total_r = CLEARANCE_CELL_MAP["total_row"]
                 ws.cell(row=total_r, column=11, value=f"=SUM(K{s_r}:K{data_end_r})")
                 ws.cell(row=total_r, column=13, value=f"=SUM(M{s_r}:M{data_end_r})")
                 ws.cell(row=total_r, column=14, value=f"=SUM(N{s_r}:N{data_end_r})")
@@ -276,9 +288,9 @@ if gen_clear_btn:
             st.markdown('</div>', unsafe_allow_html=True)
             tmp_dir.cleanup()
 
-# ===================== 模块2：截单重量体积调整（独立上传，完全隔离，修复min参数） =====================
+# ===================== 模块2：截单重量体积调整（适配您的LCL AMS模板） =====================
 st.markdown('<div class="section-title">📦 截单资料重量体积比例调整</div>', unsafe_allow_html=True)
-st.markdown("<p class='info-text'>单独上传截单Excel，输入目标总重/总体积，自动按比例缩放，数值保留3位小数</p>", unsafe_allow_html=True)
+st.markdown("<p class='info-text'>适配LCL AMS upload template，输入目标总重/总体积，自动按比例缩放，数值保留3位小数</p>", unsafe_allow_html=True)
 
 st.markdown('<div class="card">', unsafe_allow_html=True)
 # 独立文件上传
@@ -287,7 +299,7 @@ upload_cut = st.file_uploader("", type=["xlsx", "xls"], key="cut_file")
 if upload_cut is not None:
     st.success("✅ 已读取截单文件")
 
-# 双输入框（修复min→min_value）
+# 双输入框
 col_w, col_v = st.columns([0.48, 0.48], gap="medium")
 with col_w:
     target_w = st.number_input("目标总重量 kg", min_value=0.001, step=0.001, format="%.3f", key="t_w")
@@ -307,11 +319,20 @@ if adjust_btn:
         with st.spinner("⏳ 正在按比例重算数据..."):
             wb = load_workbook(upload_cut)
             ws = wb.active
-            s_r = CELL_MAP["data_start_row"]
-            e_r = CELL_MAP["data_end_clear_row"]
-            w_col = CELL_MAP["gross_weight_col"]
-            v_col = CELL_MAP["volume_col"]
+            # 读取截单模板配置
+            s_r = CUTTING_CELL_MAP["data_start_row"]
+            e_r = CUTTING_CELL_MAP["data_end_row"]
+            w_col = CUTTING_CELL_MAP["gross_weight_col"]
+            v_col = CUTTING_CELL_MAP["volume_col"]
+            header_row = CUTTING_CELL_MAP["header_row"]
 
+            # 先验证表头是否匹配
+            header_w = ws.cell(row=header_row, column=w_col).value
+            header_v = ws.cell(row=header_row, column=v_col).value
+            if header_w != CUTTING_CELL_MAP["gross_weight_header"] or header_v != CUTTING_CELL_MAP["volume_header"]:
+                st.warning(f"⚠️ 表头检测：毛重列应为【{CUTTING_CELL_MAP['gross_weight_header']}】，实际为【{header_w}】；体积列应为【{CUTTING_CELL_MAP['volume_header']}】，实际为【{header_v}】，仍尝试读取数据")
+
+            # 读取所有数据行的毛重和体积
             sum_w = 0.0
             sum_v = 0.0
             row_data_list = []
@@ -325,14 +346,17 @@ if adjust_btn:
                     row_data_list.append([r, w_val, v_val])
                     sum_w += w_val
                     sum_v += v_val
-                except:
+                except Exception as e:
+                    print(f"行{r}读取失败：{e}")
                     continue
 
+            # 校验总和
             if sum_w <= 0 or sum_v <=0:
-                st.error("❌ 文件内原始总重/体积为0，无法缩放！")
+                st.error(f"❌ 读取到的原始总重：{round(sum_w,3)}kg，总体积：{round(sum_v,3)}cbm，均为0或负数，无法缩放！")
                 wb.close()
                 st.stop()
 
+            # 计算缩放比例
             ratio_w = target_w / sum_w
             ratio_v = target_v / sum_v
 
@@ -343,20 +367,17 @@ if adjust_btn:
                 ws.cell(row=r, column=w_col, value=new_w)
                 ws.cell(row=r, column=v_col, value=new_v)
 
-            # 更新合计公式
-            total_r = CELL_MAP["total_row"]
-            ws.cell(row=total_r, column=w_col, value=f"=SUM(N{s_r}:N{e_r})")
-            ws.cell(row=total_r, column=v_col, value=f"=SUM(P{s_r}:P{e_r})")
-
+            # 保存调整后的文件
             buf = BytesIO()
             wb.save(buf)
             buf.seek(0)
             wb.close()
 
+            # 显示结果
             st.markdown('<div class="card">', unsafe_allow_html=True)
             st.success("✅ 调整完成，所有重量体积已保留3位小数")
-            st.write(f"原总重：{round(sum_w,3)} kg → 目标：{round(target_w,3)} kg")
-            st.write(f"原总体积：{round(sum_v,3)} cbm → 目标：{round(target_v,3)} cbm")
+            st.write(f"📊 原总重：{round(sum_w,3)} kg → 目标：{round(target_w,3)} kg")
+            st.write(f"📊 原总体积：{round(sum_v,3)} cbm → 目标：{round(target_v,3)} cbm")
             st.markdown('<div class="download-btn">', unsafe_allow_html=True)
             st.download_button("📥 下载调整后截单Excel", buf, "截单资料_调整后.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_cut")
             st.markdown("</div>", unsafe_allow_html=True)
@@ -364,4 +385,4 @@ if adjust_btn:
 
 # 底部说明
 st.divider()
-st.markdown("<p class='info-text'>💡 上下模块独立上传文件；重量体积统一保留3位小数；清关单制造商信息完整不丢失</p>", unsafe_allow_html=True)
+st.markdown("<p class='info-text'>💡 上下模块独立上传文件；重量体积统一保留3位小数；清关单制造商信息完整不丢失；截单模块适配LCL AMS upload template</p>", unsafe_allow_html=True)
