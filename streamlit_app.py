@@ -1,442 +1,245 @@
 import streamlit as st
 import pandas as pd
-from openpyxl import load_workbook, Workbook
-from openpyxl.cell.cell import MergedCell
-from copy import copy
+from openpyxl import load_workbook
 import os
 import zipfile
 import tempfile
 from io import BytesIO
 
-# ===================== 全局页面美化配置 =====================
-st.set_page_config(
-    page_title="FBA清关&截单资料工具",
-    page_icon="📦",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
-
-custom_css = """
+# ===================== 全局极简样式配置 =====================
+st.set_page_config(page_title="单证工具", page_icon="📦", layout="wide", initial_sidebar_state="collapsed")
+st.markdown("""
 <style>
-.main-title {
-    font-size: 32px;
-    color: #165DFF;
-    font-weight: 700;
-    margin-bottom: 10px;
-}
-.card {
-    background-color: #f8fafc;
-    padding: 20px;
-    border-radius: 12px;
-    border: 1px solid #e2e8f0;
-    margin-bottom: 20px;
-}
-.stButton>button {
-    background-color: #165DFF;
-    color: white;
-    font-size: 16px;
-    padding: 8px 24px;
-    border-radius: 8px;
-    border: none;
-}
-.stButton>button:hover {
-    background-color: #0E4BDB;
-}
-.download-btn>button {
-    background-color: #00B42A;
-}
-.download-btn>button:hover {
-    background-color: #009A24;
-}
-.info-text {
-    color: #4E5969;
-    font-size: 14px;
-}
-.preview-box {
-    background: #E8F3FF;
-    padding: 16px;
-    border-radius: 8px;
-    border-left: 4px solid #165DFF;
-}
-.section-title {
-    font-size: 24px;
-    color: #165DFF;
-    font-weight: 600;
-    margin: 30px 0 20px 0;
-}
+.main-title {font-size: 28px; font-weight: 600; margin: 10px 0 24px 0;}
+.section-divider {margin: 40px 0; border-top:1px solid #eee;}
+.card {background:#f9fafb; padding:22px; border-radius:10px; margin-bottom:16px;}
+.btn-main {background:#2563eb; color:white; font-size:16px; padding:8px 26px; border:none; border-radius:8px;}
+.btn-main:hover {background:#1d4ed8;}
 </style>
-"""
-st.markdown(custom_css, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
-# ===================== 账号配置 =====================
+# ===================== 账号配置（清关模块专用） =====================
 ACCOUNT_INFO = {
-    "39": {
-        "shipper_name": "Shenzhen Longyuan Junjie Technology Co., Ltd.",
-        "shipper_addr": "Room 502, No. 5, Ruiyuan Second Lane, Nanlian Community, Longgang Subdistrict, Longgang District, Shenzhen,Guangdong,China",
-        "contact": "ZHOUJUNJIE",
-        "phone": "+8613427679670"
-    },
-    "79": {
-        "shipper_name": "Mingtongsheng (Shenzhen) E-commerce Co., Ltd.",
-        "shipper_addr": "3A Zijing Pavilion, Building 4, Baizhu Garden, 249 Zhuguang Road, Longlian Community, Tao Yuan Street, Nanshan District, Shenzhen,Guangdong,China",
-        "contact": "LIMIN",
-        "phone": "+8613902478270"
-    },
-    "76": {
-        "shipper_name": "Shenzhen Chengziwei Technology Co., Ltd.",
-        "shipper_addr": "B410, Buildings 2 and 3, Mingliang Technology Park, No. 88 Zhuguang North Road, Pingshan Community, Tao Yuan Street, Nanshan District, Shenzhen,Guangdong,China",
-        "contact": "CHENZIWEI",
-        "phone": "+8615875396146"
-    },
-    "47.92": {
-        "shipper_name": "Shenzhen Dongshan Jinhao Technology Co., Ltd.",
-        "shipper_addr": "Room 108, Building 8, Maker Town, Xili Street, Nanshan District, Shenzhen,Guangdong,China",
-        "contact": "CHENJINHAO",
-        "phone": "+8613530567440"
-    },
-    "47.100": {
-        "shipper_name": "Shenzhen Weizhite Technology Co., Ltd.",
-        "shipper_addr": "410, Building 2-3, Bright Technology Park, No. 88 Zhuguang North Road, Pingshan Community, Taoyuan Street, Nanshan District, Shenzhen,Guangdong,China",
-        "contact": "CHENSIFA",
-        "phone": "+8615986680681"
-    },
-    "47.99": {
-        "shipper_name": "Shenzhen Shunhuixiong Technology Co., Ltd.",
-        "shipper_addr": "115, Building 10, Maker Town, No. 4109 Liuxian Avenue, Pingshan Community, Taoyuan Street, Nanshan District, Shenzhen,Guangdong,China",
-        "contact": "LIANGRIXIONG",
-        "phone": "+8618026938073"
-    },
-    "70": {
-        "shipper_name": "Shenzhen Xingyuepan Technology Co., Ltd.",
-        "shipper_addr": "B429, No. 22 Dakan Industrial 2nd Road, Daguan Community, Xili Street, Nanshan District, Shenzhen,Guangdong,China",
-        "contact": "LIUBIN",
-        "phone": "+8613530369614"
-    },
-    "71": {
-        "shipper_name": "Shenzhen Chenghai Liufa Technology Co., Ltd.",
-        "shipper_addr": "28C, Unit A, Building 3, Xiangshanli Phase 5, Wenchang Street Community, Shahe Street, Nanshan District, Shenzhen,Guangdong,China",
-        "contact": "GULIUFA",
-        "phone": "+8617744965296"
-    },
-    "8.1": {
-        "shipper_name": "Shenzhen Shiqi Jiechao Technology Co., Ltd.",
-        "shipper_addr": "Tianxi Xiaoju V211, No. 10 Ruihua North Lane, Nanlian Community, Longgang Street, Longgang District, Shenzhen,Guangdong,China",
-        "contact": "LUJIECHAO",
-        "phone": "+8613670528672"
-    },
-    "47.108": {
-        "shipper_name": "Guangzhou Changyou Weilin Technology Co., Ltd.",
-        "shipper_addr": "Shop 422, No. 15 Yihe Road, Liwan District, Guangzhou,Guangdong,China",
-        "contact": "LUOSILIN",
-        "phone": "+8615728285292"
-    },
-    "47.239": {
-        "shipper_name": "Hong Kong LingLingQinLv Technology Limited",
-        "shipper_addr": "UNIT F22,RM 6, 10/F, LEMMI CENTRE, 50 HOI YUEN ROAD,Kwun Tong,Hong Kong",
-        "contact": "LUQINGLING",
-        "phone": "+8619864368710"
-    }
+    "39": {"shipper_name": "Shenzhen Longyuan Junjie Technology Co., Ltd.","shipper_addr": "Room 502, No. 5, Ruiyuan Second Lane, Nanlian Community, Longgang Subdistrict, Longgang District, Shenzhen,Guangdong,China","contact": "ZHOUJUNJIE","phone": "+8613427679670"},
+    "79": {"shipper_name": "Mingtongsheng (Shenzhen) E-commerce Co., Ltd.","shipper_addr": "3A Zijing Pavilion, Building 4, Baizhu Garden, 249 Zhuguang Road, Longlian Community, Tao Yuan Street, Nanshan District, Shenzhen,Guangdong,China","contact": "LIMIN","phone": "+8613902478270"},
+    "76": {"shipper_name": "Shenzhen Chengziwei Technology Co., Ltd.","shipper_addr": "B410, Buildings 2 and 3, Mingliang Technology Park, No. 88 Zhuguang North Road, Pingshan Community, Tao Yuan Street, Nanshan District, Shenzhen,Guangdong,China","contact": "CHENZIWEI","phone": "+8615875396146"},
+    "47.92": {"shipper_name": "Shenzhen Dongshan Jinhao Technology Co., Ltd.","shipper_addr": "Room 108, Building 8, Maker Town, Xili Street, Nanshan District, Shenzhen,Guangdong,China","contact": "CHENJINHAO","phone": "+8613530567440"},
+    "47.100": {"shipper_name": "Shenzhen Weizhite Technology Co., Ltd.","shipper_addr": "410, Building 2-3, Bright Technology Park, No. 88 Zhuguang North Road, Pingshan Community, Taoyuan Street, Nanshan District, Shenzhen,Guangdong,China","contact": "CHENSIFA","phone": "+8615986680681"},
+    "47.99": {"shipper_name": "Shenzhen Shunhuixiong Technology Co., Ltd.","shipper_addr": "115, Building 10, Maker Town, No. 4109 Liuxian Avenue, Pingshan Community, Taoyuan Street, Nanshan District, Shenzhen,Guangdong,China","contact": "LIANGRIXIONG","phone": "+8618026938073"},
+    "70": {"shipper_name": "Shenzhen Xingyuepan Technology Co., Ltd.","shipper_addr": "B429, No. 22 Dakan Industrial 2nd Road, Daguan Community, Xili Street, Nanshan District, Shenzhen,Guangdong,China","contact": "LIUBIN","phone": "+8613530369614"},
+    "71": {"shipper_name": "Shenzhen Chenghai Liufa Technology Co., Ltd.","shipper_addr": "28C, Unit A, Building 3, Xiangshanli Phase 5, Wenchang Street Community, Shahe Street, Nanshan District, Shenzhen,Guangdong,China","contact": "GULIUFA","phone": "+8617744965296"},
+    "8.1": {"shipper_name": "Shenzhen Shiqi Jiechao Technology Co., Ltd.","shipper_addr": "Tianxi Xiaoju V211, No. 10 Ruihua North Lane, Nanlian Community, Longgang Street, Longgang District, Shenzhen,Guangdong,China","contact": "LUJIECHAO","phone": "+8613670528672"},
+    "47.108": {"shipper_name": "Guangzhou Changyou Weilin Technology Co., Ltd.","shipper_addr": "Shop 422, No. 15 Yihe Road, Liwan District, Guangzhou,Guangdong,China","contact": "LUOSILIN","phone": "+8615728285292"},
+    "47.239": {"shipper_name": "Hong Kong LingLingQinLv Technology Limited","shipper_addr": "UNIT F22,RM 6, 10/F, LEMMI CENTRE, 50 HOI YUEN ROAD,Kwun Tong,Hong Kong","contact": "LUQINGLING","phone": "+8619864368710"}
 }
 
-# 清关单模板配置（上方模块用）
-CLEARANCE_CELL_MAP = {
-    "fba_no": "J8",
-    "ship_name": "B7",
-    "ship_addr": "B8",
-    "ship_contact": "B9",
-    "ship_tel": "B10",
-    "imp_name": "E7",
-    "imp_addr": "E8",
-    "imp_contact": "E9",
-    "imp_tel": "E10",
-    "manu_name": "C38",
-    "manu_addr": "C39",
-    "data_start_row": 22,
-    "data_end_clear_row": 35,
-    "total_row": 36,
-    "gross_weight_col": 14,
-    "volume_col": 16
+# 清关模板坐标
+CLEAR_MAP = {
+    "fba_no": "J8","ship_name": "B7","ship_addr": "B8","ship_contact": "B9","ship_tel": "B10",
+    "imp_name": "E7","imp_addr": "E8","imp_contact": "E9","imp_tel": "E10","manu_name": "C38","manu_addr": "C39",
+    "data_start":22,"data_end":35,"total_row":36,"weight_col":14,"vol_col":16
 }
-
-# 截单资料模板配置（下方模块用，适配您的LCL AMS模板）
-CUTTING_CELL_MAP = {
-    "header_row": 3,          # 表头行号（Excel行号）
-    "data_start_row": 4,      # 数据起始行号
-    "data_end_row": 7,        # 数据结束行号
-    "gross_weight_col": 3,    # 毛重列：C列（列号3）
-    "volume_col": 4,           # 体积列：D列（列号4）
-    "gross_weight_header": "Gross weight",  # 毛重列名
-    "volume_header": "Volume"                 # 体积列名
+# 截单LCL模板坐标
+CUT_MAP = {
+    "header_row":3,"data_start":4,"data_end":7,"weight_col":3,"vol_col":4,
+    "weight_head":"Gross weight","vol_head":"Volume"
 }
-
 TEMPLATE_FILE = "AL0-SBU6B5D6EZU6S.xlsx"
 
 # ===================== 页面标题 =====================
-st.markdown('<div class="main-title">📦 FBA清关单批量生成工具</div>', unsafe_allow_html=True)
-st.divider()
+st.markdown('<div class="main-title">📦 单证批量处理工具</div>', unsafe_allow_html=True)
 
-# ===================== 模块1：FBA清关单生成（独立上传文件） =====================
-col_left, col_right = st.columns([0.48, 0.48], gap="medium")
-# 左侧：清关数据源上传
-with col_left:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader("📁 第一步：上传清单数据源Excel")
-    st.markdown("<p class='info-text'>文件内需包含【FBA编号】列</p>", unsafe_allow_html=True)
-    upload_clear = st.file_uploader("", type=["xlsx", "xls"], key="clear_file")
-    if upload_clear is not None:
-        st.success("✅ 已读取文件")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# 右侧：账号选择
-with col_right:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader("🏢 第二步：选择发货账号")
-    acc_list = list(ACCOUNT_INFO.keys())
-    select_acc = st.selectbox("", options=acc_list, format_func=lambda x: f"账号{x}", key="acc_sel")
-    current_acc = ACCOUNT_INFO[select_acc]
-    st.markdown("<div class='preview-box'>", unsafe_allow_html=True)
-    st.write(f"**公司名称：** {current_acc['shipper_name']}")
-    st.write(f"**地址：** {current_acc['shipper_addr']}")
-    st.write(f"**联系人：** {current_acc['contact']} | 电话：{current_acc['phone']}")
-    st.markdown("</div>", unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# 清关生成按钮
+# ===================== 模块1：FBA清关单生成（生成即自动下载） =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
-col_btn, _ = st.columns([0.2, 0.8])
-with col_btn:
-    gen_clear_btn = st.button("🚀 开始批量生成清关文件", key="gen_clear")
+st.subheader("1. FBA清关单批量生成")
+col1, col2 = st.columns([0.48, 0.48], gap="medium")
+with col1:
+    file_clear = st.file_uploader("上传数据源Excel", type=["xlsx","xls"], key="clear_file")
+with col2:
+    acc_list = list(ACCOUNT_INFO.keys())
+    select_acc = st.selectbox("选择账号", options=acc_list, key="acc_sel")
+
+gen_clear = st.button("生成并下载清关资料", key="gen_clear", type="primary")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# 清关生成逻辑
-if gen_clear_btn:
-    if upload_clear is None:
-        st.error("❌ 请上传清单数据源Excel！")
+# 清关生成逻辑（一键生成直接下载）
+if gen_clear:
+    if not file_clear:
+        st.error("请上传数据源文件")
     elif not os.path.exists(TEMPLATE_FILE):
-        st.error(f"❌ 模板{TEMPLATE_FILE}缺失！")
+        st.error("模板文件缺失")
     else:
-        with st.spinner("⏳ 正在生成清关单..."):
-            df = pd.read_excel(upload_clear)
+        with st.spinner("正在生成..."):
+            df = pd.read_excel(file_clear)
             groups = df.groupby("FBA编号")
-            acc_data = ACCOUNT_INFO[select_acc]
+            acc_info = ACCOUNT_INFO[select_acc]
             tmp_dir = tempfile.TemporaryDirectory()
             tmp_path = tmp_dir.name
-            out_file_list = []
+            file_list = []
 
-            for fba_id, group_df in groups:
+            for fba_id, group in groups:
                 wb = load_workbook(TEMPLATE_FILE)
                 ws = wb.active
-                ws[CLEARANCE_CELL_MAP["ship_name"]].value = acc_data["shipper_name"]
-                ws[CLEARANCE_CELL_MAP["ship_addr"]].value = acc_data["shipper_addr"]
-                ws[CLEARANCE_CELL_MAP["ship_contact"]].value = f"Contact:{acc_data['contact']}"
-                ws[CLEARANCE_CELL_MAP["ship_tel"]].value = f"Phone:{acc_data['phone']}"
-                ws[CLEARANCE_CELL_MAP["imp_name"]].value = acc_data["shipper_name"]
-                ws[CLEARANCE_CELL_MAP["imp_addr"]].value = acc_data["shipper_addr"]
-                ws[CLEARANCE_CELL_MAP["imp_contact"]].value = f"Contact:{acc_data['contact']}"
-                ws[CLEARANCE_CELL_MAP["imp_tel"]].value = f"Phone:{acc_data['phone']}"
-                ws[CLEARANCE_CELL_MAP["manu_name"]].value = acc_data["shipper_name"]
-                ws[CLEARANCE_CELL_MAP["manu_addr"]].value = acc_data["shipper_addr"]
-                ws[CLEARANCE_CELL_MAP["fba_no"]].value = fba_id
-
-                s_r = CLEARANCE_CELL_MAP["data_start_row"]
-                e_r = CLEARANCE_CELL_MAP["data_end_clear_row"]
-                for r in range(s_r, e_r + 1):
-                    for c in range(2, 17):
+                # 填充发货人信息
+                ws[CLEAR_MAP["ship_name"]].value = acc_info["shipper_name"]
+                ws[CLEAR_MAP["ship_addr"]].value = acc_info["shipper_addr"]
+                ws[CLEAR_MAP["ship_contact"]].value = f"Contact:{acc_info['contact']}"
+                ws[CLEAR_MAP["ship_tel"]].value = f"Phone:{acc_info['phone']}"
+                ws[CLEAR_MAP["imp_name"]].value = acc_info["shipper_name"]
+                ws[CLEAR_MAP["imp_addr"]].value = acc_info["shipper_addr"]
+                ws[CLEAR_MAP["imp_contact"]].value = f"Contact:{acc_info['contact']}"
+                ws[CLEAR_MAP["imp_tel"]].value = f"Phone:{acc_info['phone']}"
+                ws[CLEAR_MAP["manu_name"]].value = acc_info["shipper_name"]
+                ws[CLEAR_MAP["manu_addr"]].value = acc_info["shipper_addr"]
+                ws[CLEAR_MAP["fba_no"]].value = fba_id
+                # 清空旧数据
+                s_r = CLEAR_MAP["data_start"]
+                e_r = CLEAR_MAP["data_end"]
+                for r in range(s_r, e_r+1):
+                    for c in range(2,17):
                         ws.cell(row=r, column=c, value=None)
-
-                data_rows = group_df.values.tolist()
-                for idx, row_data in enumerate(data_rows):
-                    curr_r = s_r + idx
-                    ws.cell(row=curr_r, column=2, value=row_data[0])
-                    ws.cell(row=curr_r, column=3, value=row_data[1])
-                    ws.cell(row=curr_r, column=4, value=row_data[2])
-                    ws.cell(row=curr_r, column=5, value=row_data[3])
-                    ws.cell(row=curr_r, column=8, value="CN")
-                    ws.cell(row=curr_r, column=9, value=row_data[7])
-                    ws.cell(row=curr_r, column=10, value=row_data[8])
-                    ws.cell(row=curr_r, column=11, value=f"=J{curr_r}*I{curr_r}")
-                    ws.cell(row=curr_r, column=13, value=row_data[11])
-                    ws.cell(row=curr_r, column=14, value=round(row_data[12],3))
-                    ws.cell(row=curr_r, column=15, value=row_data[13])
-                    ws.cell(row=curr_r, column=16, value=round(row_data[14],3))
-
-                data_end_r = s_r + len(data_rows) - 1
-                total_r = CLEARANCE_CELL_MAP["total_row"]
-                ws.cell(row=total_r, column=11, value=f"=SUM(K{s_r}:K{data_end_r})")
-                ws.cell(row=total_r, column=13, value=f"=SUM(M{s_r}:M{data_end_r})")
-                ws.cell(row=total_r, column=14, value=f"=SUM(N{s_r}:N{data_end_r})")
-                ws.cell(row=total_r, column=15, value=f"=SUM(O{s_r}:O{data_end_r})")
-                ws.cell(row=total_r, column=16, value=f"=SUM(P{s_r}:P{data_end_r})")
-
-                save_file = os.path.join(tmp_path, f"{fba_id}.xlsx")
-                wb.save(save_file)
+                # 写入新明细
+                rows = group.values.tolist()
+                for idx, row in enumerate(rows):
+                    r = s_r + idx
+                    ws.cell(r,2,row[0])
+                    ws.cell(r,3,row[1])
+                    ws.cell(r,4,row[2])
+                    ws.cell(r,5,row[3])
+                    ws.cell(r,8,"CN")
+                    ws.cell(r,9,row[7])
+                    ws.cell(r,10,row[8])
+                    ws.cell(r,11,f"=J{r}*I{r}")
+                    ws.cell(r,13,row[11])
+                    ws.cell(r,14,round(row[12],3))
+                    ws.cell(r,15,row[13])
+                    ws.cell(r,16,round(row[14],3))
+                # 合计公式
+                end_data = s_r + len(rows) -1
+                total_r = CLEAR_MAP["total_row"]
+                ws.cell(total_r,11,f"=SUM(K{s_r}:K{end_data})")
+                ws.cell(total_r,13,f"=SUM(M{s_r}:M{end_data})")
+                ws.cell(total_r,14,f"=SUM(N{s_r}:N{end_data})")
+                ws.cell(total_r,15,f"=SUM(O{s_r}:O{end_data})")
+                ws.cell(total_r,16,f"=SUM(P{s_r}:P{end_data})")
+                save_path = os.path.join(tmp_path, f"{fba_id}.xlsx")
+                wb.save(save_path)
                 wb.close()
-                out_file_list.append(save_file)
-
-            zip_buffer = BytesIO()
+                file_list.append(save_path)
+            # 打包zip
+            zip_buf = BytesIO()
             zip_name = f"{select_acc}清关资料.zip"
-            with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-                for f_path in out_file_list:
-                    zf.write(f_path, os.path.basename(f_path))
-            zip_buffer.seek(0)
-
-            st.markdown('<div class="card">', unsafe_allow_html=True)
-            st.success(f"🎉 清关单生成完成！共{len(out_file_list)}份")
-            st.markdown('<div class="download-btn">', unsafe_allow_html=True)
-            st.download_button("📥 下载清关资料ZIP", zip_buffer, zip_name, "application/zip", key="dl_clear")
-            st.markdown("</div>", unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+            with zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                for fp in file_list:
+                    zf.write(fp, os.path.basename(fp))
+            zip_buf.seek(0)
+            # 直接触发下载，无需额外按钮
+            st.download_button(label="自动下载", data=zip_buf, file_name=zip_name, mime="application/zip", key="dl_clear_auto", hidden=True)
+            st.success(f"{zip_name} 已生成，自动开始下载")
             tmp_dir.cleanup()
 
-# ===================== 模块2：截单重量体积调整（自动提取AL0编号命名文件） =====================
-st.markdown('<div class="section-title">📦 截单资料重量体积比例调整</div>', unsafe_allow_html=True)
-st.markdown("<p class='info-text'>适配LCL AMS upload template，自动提取文件名中的AL0编号命名输出文件，强制锁定合计值与目标完全一致，数值保留3位小数</p>", unsafe_allow_html=True)
+# 分割线
+st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
-# 卡片容器起始
+# ===================== 模块2：截单重量体积调整（生成即自动下载） =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
-# 1. 上传区
-st.subheader("1. 上传截单Excel文件")
-upload_cut = st.file_uploader("", type=["xlsx", "xls"], key="cut_file")
-if upload_cut is not None:
-    st.success("✅ 已读取截单文件")
-    file_name = upload_cut.name
-    file_name_no_ext = os.path.splitext(file_name)[0]
-    al0_code = ""
-    parts = file_name_no_ext.split("_")
-    for part in parts:
-        if part.startswith("AL0"):
-            al0_code = part
-            break
-    if al0_code:
-        st.info(f"🔍 已自动提取到AL0编号：{al0_code}，最终输出文件名：截单资料{al0_code}.xlsx")
-
-# 2. 重量体积输入框（和上传同级缩进）
-col_w, col_v = st.columns([0.48, 0.48], gap="medium")
-with col_w:
-    target_w = st.number_input("目标总重量 kg", min_value=0.001, step=0.001, format="%.3f", key="t_w")
-with col_v:
-    target_v = st.number_input("目标总体积 cbm", min_value=0.001, step=0.001, format="%.3f", key="t_v")
-
-# 按钮定义：与输入框同级，不要缩进在其他代码块内部
-adjust_btn = st.button("🔄 按比例重新计算重量体积", key="adj_btn")
-# 卡片容器结束
+st.subheader("2. 截单重量体积比例调整")
+upload_cut = st.file_uploader("上传LCL截单Excel", type=["xlsx","xls"], key="cut_file")
+colw, colv = st.columns([0.48,0.48], gap="medium")
+with colw:
+    target_w = st.number_input("目标总重量 kg", min_value=0.001, step=0.001, format="%.3f", key="tw")
+with colv:
+    target_v = st.number_input("目标总体积 cbm", min_value=0.001, step=0.001, format="%.3f", key="tv")
+adjust_btn = st.button("调整并下载截单资料", key="adj_btn", type="primary")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# 判断逻辑：全局层级，可正常读取 adjust_btn
+# 截单调整逻辑（一键生成直接下载）
 if adjust_btn:
-    if upload_cut is None:
-        st.error("❌ 请先上传截单Excel！")
+    if not upload_cut:
+        st.error("请上传截单Excel文件")
     elif target_w <=0 or target_v <=0:
-        st.error("❌ 目标重量/体积必须大于0！")
+        st.error("重量、体积必须大于0")
     else:
-        with st.spinner("⏳ 正在按比例重算数据，强制锁定总和等于目标值..."):
+        with st.spinner("正在计算调整..."):
             # 提取AL0编号
-            file_name = upload_cut.name
-            file_name_no_ext = os.path.splitext(file_name)[0]
+            fname = upload_cut.name
+            name_no_ext = os.path.splitext(fname)[0]
             al0_code = ""
-            parts = file_name_no_ext.split("_")
-            for part in parts:
+            for part in name_no_ext.split("_"):
                 if part.startswith("AL0"):
                     al0_code = part
                     break
             if not al0_code:
                 al0_code = "未知编号"
-            output_file_name = f"截单资料{al0_code}.xlsx"
-
-            # 加载工作簿
+            out_name = f"截单资料{al0_code}.xlsx"
+            # 加载表格
             wb = load_workbook(upload_cut)
             ws = wb.active
-            s_r = CUTTING_CELL_MAP["data_start_row"]
-            e_r = CUTTING_CELL_MAP["data_end_row"]
-            w_col = CUTTING_CELL_MAP["gross_weight_col"]
-            v_col = CUTTING_CELL_MAP["volume_col"]
-            header_row = CUTTING_CELL_MAP["header_row"]
-
-            # 表头校验
-            header_w = ws.cell(row=header_row, column=w_col).value
-            header_v = ws.cell(row=header_row, column=v_col).value
-            if header_w != CUTTING_CELL_MAP["gross_weight_header"] or header_v != CUTTING_CELL_MAP["volume_header"]:
-                st.warning(f"⚠️ 表头校验提示：预期毛重列名{CUTTING_CELL_MAP['gross_weight_header']}，体积列名{CUTTING_CELL_MAP['volume_header']}")
-
+            s_r = CUT_MAP["data_start"]
+            e_r = CUT_MAP["data_end"]
+            w_col = CUT_MAP["weight_col"]
+            v_col = CUT_MAP["vol_col"]
             # 读取原始数据
-            raw_rows = []
+            raw = []
             sum_w_ori = 0.0
             sum_v_ori = 0.0
-            for r in range(s_r, e_r + 1):
-                w_cell = ws.cell(row=r, column=w_col)
-                v_cell = ws.cell(row=r, column=v_col)
+            for r in range(s_r, e_r+1):
+                wc = ws.cell(r, w_col)
+                vc = ws.cell(r, v_col)
                 try:
-                    w_val = float(w_cell.value)
-                    v_val = float(v_cell.value)
-                    raw_rows.append([r, w_val, v_val])
-                    sum_w_ori += w_val
-                    sum_v_ori += v_val
-                except Exception as e:
+                    wv = float(wc.value)
+                    vv = float(vc.value)
+                    raw.append([r, wv, vv])
+                    sum_w_ori += wv
+                    sum_v_ori += vv
+                except:
                     continue
-
-            if sum_w_ori <= 0 or sum_v_ori <=0:
-                st.error(f"❌ 原始总重：{round(sum_w_ori,3)}kg，总体积：{round(sum_v_ori,3)}cbm，无法缩放！")
+            if sum_w_ori <=0 or sum_v_ori <=0:
+                st.error("文件内重量/体积总和为0，无法调整")
                 wb.close()
                 st.stop()
-
-            # 计算缩放比例
+            # 缩放比例
             ratio_w = target_w / sum_w_ori
             ratio_v = target_v / sum_v_ori
-
-            # 计算精确缩放值
-            rows_data = []
-            for r, ow, ov in raw_rows:
+            data_list = []
+            for r, ow, ov in raw:
                 ew = ow * ratio_w
                 ev = ov * ratio_v
-                rows_data.append([r, ew, ev])
-
-            # ========== 重量精准分配算法（彻底解决四舍五入偏差） ==========
+                data_list.append([r, ew, ev])
+            # 精准分配算法，消除四舍五入误差
             target_w_int = int(round(target_w * 1000))
-            weight_ints = []
-            sum_w_int = 0
-            for _, ew, _ in rows_data:
+            w_int_list = []
+            sum_wint = 0
+            for _, ew, _ in data_list:
                 i = int(round(ew * 1000))
-                weight_ints.append(i)
-                sum_w_int += i
-            diff_w = target_w_int - sum_w_int
-            weight_ints[-1] += diff_w  # 差值分摊到最后一行，保证总和精准
+                w_int_list.append(i)
+                sum_wint += i
+            diff_w = target_w_int - sum_wint
+            w_int_list[-1] += diff_w
 
-            # ========== 体积精准分配算法 ==========
             target_v_int = int(round(target_v * 1000))
-            vol_ints = []
-            sum_v_int = 0
-            for _, _, ev in rows_data:
+            v_int_list = []
+            sum_vint = 0
+            for _, _, ev in data_list:
                 i = int(round(ev * 1000))
-                vol_ints.append(i)
-                sum_v_int += i
-            diff_v = target_v_int - sum_v_int
-            vol_ints[-1] += diff_v
-
-            # 写入单元格，还原3位小数
-            for idx, (row_num, _, _) in enumerate(rows_data):
-                final_w = weight_ints[idx] / 1000
-                final_v = vol_ints[idx] / 1000
-                ws.cell(row=row_num, column=w_col, value=final_w)
-                ws.cell(row=row_num, column=v_col, value=final_v)
-
-            # 保存文件
+                v_int_list.append(i)
+                sum_vint += i
+            diff_v = target_v_int - sum_vint
+            v_int_list[-1] += diff_v
+            # 写入表格
+            for idx, (row_num, _, _) in enumerate(data_list):
+                final_w = w_int_list[idx] / 1000
+                final_v = v_int_list[idx] / 1000
+                ws.cell(row_num, w_col, value=final_w)
+                ws.cell(row_num, v_col, value=final_v)
+            # 保存到内存
             buf = BytesIO()
             wb.save(buf)
             buf.seek(0)
             wb.close()
+            # 隐藏下载按钮，自动触发下载
+            st.download_button(label="自动下载", data=buf, file_name=out_name, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_cut_auto", hidden=True)
+            st.success(f"{out_name} 调整完成，自动开始下载")
 
-            # 结果展示
-            st.markdown('<div class="card">', unsafe_allow_html=True)
-            st.success(f"✅ 调整完成！已自动提取AL0编号：{al0_code}，最终合计严格等于目标值")
-            st.write(f"📊 原始总重：{round(sum_w_ori,3)} kg → 目标总重：{target_w:.3f} kg")
-            st.write(f"📊 原始总体积：{round(sum_v_ori,3)} cbm → 目标总体积：{target_v:.3f} cbm")
-            st.markdown('<div class="download-btn">', unsafe_allow_html=True)
-            st.download_button(
-                label=f"📥 下载{output_file_name}",
-                data=buf,
-                file_name=output_file_name,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="dl_cut"
-            )
-            st.markdown("</div>", unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+# 底部极简说明
+st.markdown("<p style='color:#666; font-size:13px; margin-top:30px;'>上方：生成FBA清关打包文件 | 下方：调整LCL截单重量体积，数值保留3位小数</p>", unsafe_allow_html=True)
