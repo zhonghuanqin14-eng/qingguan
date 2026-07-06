@@ -288,7 +288,41 @@ if gen_clear_btn:
             st.markdown('</div>', unsafe_allow_html=True)
             tmp_dir.cleanup()
 
-# 截单调整逻辑（彻底解决四舍五入总和偏差）
+# ===================== 模块2：截单重量体积调整（自动提取AL0编号命名文件） =====================
+st.markdown('<div class="section-title">📦 截单资料重量体积比例调整</div>', unsafe_allow_html=True)
+st.markdown("<p class='info-text'>适配LCL AMS upload template，自动提取文件名中的AL0编号命名输出文件，强制锁定合计值与目标完全一致，数值保留3位小数</p>", unsafe_allow_html=True)
+
+# 卡片容器起始
+st.markdown('<div class="card">', unsafe_allow_html=True)
+# 1. 上传区
+st.subheader("1. 上传截单Excel文件")
+upload_cut = st.file_uploader("", type=["xlsx", "xls"], key="cut_file")
+if upload_cut is not None:
+    st.success("✅ 已读取截单文件")
+    file_name = upload_cut.name
+    file_name_no_ext = os.path.splitext(file_name)[0]
+    al0_code = ""
+    parts = file_name_no_ext.split("_")
+    for part in parts:
+        if part.startswith("AL0"):
+            al0_code = part
+            break
+    if al0_code:
+        st.info(f"🔍 已自动提取到AL0编号：{al0_code}，最终输出文件名：截单资料{al0_code}.xlsx")
+
+# 2. 重量体积输入框（和上传同级缩进）
+col_w, col_v = st.columns([0.48, 0.48], gap="medium")
+with col_w:
+    target_w = st.number_input("目标总重量 kg", min_value=0.001, step=0.001, format="%.3f", key="t_w")
+with col_v:
+    target_v = st.number_input("目标总体积 cbm", min_value=0.001, step=0.001, format="%.3f", key="t_v")
+
+# 按钮定义：与输入框同级，不要缩进在其他代码块内部
+adjust_btn = st.button("🔄 按比例重新计算重量体积", key="adj_btn")
+# 卡片容器结束
+st.markdown('</div>', unsafe_allow_html=True)
+
+# 判断逻辑：全局层级，可正常读取 adjust_btn
 if adjust_btn:
     if upload_cut is None:
         st.error("❌ 请先上传截单Excel！")
@@ -296,6 +330,20 @@ if adjust_btn:
         st.error("❌ 目标重量/体积必须大于0！")
     else:
         with st.spinner("⏳ 正在按比例重算数据，强制锁定总和等于目标值..."):
+            # 提取AL0编号
+            file_name = upload_cut.name
+            file_name_no_ext = os.path.splitext(file_name)[0]
+            al0_code = ""
+            parts = file_name_no_ext.split("_")
+            for part in parts:
+                if part.startswith("AL0"):
+                    al0_code = part
+                    break
+            if not al0_code:
+                al0_code = "未知编号"
+            output_file_name = f"截单资料{al0_code}.xlsx"
+
+            # 加载工作簿
             wb = load_workbook(upload_cut)
             ws = wb.active
             s_r = CUTTING_CELL_MAP["data_start_row"]
@@ -304,11 +352,13 @@ if adjust_btn:
             v_col = CUTTING_CELL_MAP["volume_col"]
             header_row = CUTTING_CELL_MAP["header_row"]
 
+            # 表头校验
             header_w = ws.cell(row=header_row, column=w_col).value
             header_v = ws.cell(row=header_row, column=v_col).value
             if header_w != CUTTING_CELL_MAP["gross_weight_header"] or header_v != CUTTING_CELL_MAP["volume_header"]:
                 st.warning(f"⚠️ 表头校验提示：预期毛重列名{CUTTING_CELL_MAP['gross_weight_header']}，体积列名{CUTTING_CELL_MAP['volume_header']}")
 
+            # 读取原始数据
             raw_rows = []
             sum_w_ori = 0.0
             sum_v_ori = 0.0
@@ -329,17 +379,18 @@ if adjust_btn:
                 wb.close()
                 st.stop()
 
-            # 比例
+            # 计算缩放比例
             ratio_w = target_w / sum_w_ori
             ratio_v = target_v / sum_v_ori
 
+            # 计算精确缩放值
             rows_data = []
             for r, ow, ov in raw_rows:
                 ew = ow * ratio_w
                 ev = ov * ratio_v
                 rows_data.append([r, ew, ev])
 
-            # ========== 重量精准分配算法 ==========
+            # ========== 重量精准分配算法（彻底解决四舍五入偏差） ==========
             target_w_int = int(round(target_w * 1000))
             weight_ints = []
             sum_w_int = 0
@@ -348,8 +399,7 @@ if adjust_btn:
                 weight_ints.append(i)
                 sum_w_int += i
             diff_w = target_w_int - sum_w_int
-            # 差值分摊到最后一行
-            weight_ints[-1] += diff_w
+            weight_ints[-1] += diff_w  # 差值分摊到最后一行，保证总和精准
 
             # ========== 体积精准分配算法 ==========
             target_v_int = int(round(target_v * 1000))
@@ -362,23 +412,31 @@ if adjust_btn:
             diff_v = target_v_int - sum_v_int
             vol_ints[-1] += diff_v
 
-            # 写入单元格，除以1000还原3位小数
+            # 写入单元格，还原3位小数
             for idx, (row_num, _, _) in enumerate(rows_data):
                 final_w = weight_ints[idx] / 1000
                 final_v = vol_ints[idx] / 1000
                 ws.cell(row=row_num, column=w_col, value=final_w)
                 ws.cell(row=row_num, column=v_col, value=final_v)
 
+            # 保存文件
             buf = BytesIO()
             wb.save(buf)
             buf.seek(0)
             wb.close()
 
+            # 结果展示
             st.markdown('<div class="card">', unsafe_allow_html=True)
-            st.success("✅ 调整完成！已强制锁定合计值与目标完全一致，所有数值保留3位小数")
+            st.success(f"✅ 调整完成！已自动提取AL0编号：{al0_code}，最终合计严格等于目标值")
             st.write(f"📊 原始总重：{round(sum_w_ori,3)} kg → 目标总重：{target_w:.3f} kg")
             st.write(f"📊 原始总体积：{round(sum_v_ori,3)} cbm → 目标总体积：{target_v:.3f} cbm")
             st.markdown('<div class="download-btn">', unsafe_allow_html=True)
-            st.download_button("📥 下载调整后截单Excel", buf, "截单资料_调整后.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_cut")
+            st.download_button(
+                label=f"📥 下载{output_file_name}",
+                data=buf,
+                file_name=output_file_name,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="dl_cut"
+            )
             st.markdown("</div>", unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
