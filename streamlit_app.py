@@ -269,14 +269,14 @@ if gen_clear_btn:
             zip_buffer.seek(0)
 
             st.markdown('<div class="card">', unsafe_allow_html=True)
-            st.success(f"🎉 清关单生成完成！共{len(out_file)}份")
+            st.success(f"🎉 清关单生成完成！共{len(out_file_list)}份")
             st.markdown('<div class="download-btn">', unsafe_allow_html=True)
             st.download_button("📥 下载清关资料ZIP", zip_buffer, zip_name, "application/zip", key="dl_clear")
             st.markdown("</div>", unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
             tmp_dir.cleanup()
 
-# ===================== 模块2：截单重量体积调整（独立上传，完全隔离） =====================
+# ===================== 模块2：截单重量体积调整（独立上传，完全隔离，修复min参数） =====================
 st.markdown('<div class="section-title">📦 截单资料重量体积比例调整</div>', unsafe_allow_html=True)
 st.markdown("<p class='info-text'>单独上传截单Excel，输入目标总重/总体积，自动按比例缩放，数值保留3位小数</p>", unsafe_allow_html=True)
 
@@ -287,12 +287,12 @@ upload_cut = st.file_uploader("", type=["xlsx", "xls"], key="cut_file")
 if upload_cut is not None:
     st.success("✅ 已读取截单文件")
 
-# 双输入框
+# 双输入框（修复min→min_value）
 col_w, col_v = st.columns([0.48, 0.48], gap="medium")
 with col_w:
-    target_w = st.number_input("目标总重量 kg", min=0.001, step=0.001, format="%.3f", key="t_w")
+    target_w = st.number_input("目标总重量 kg", min_value=0.001, step=0.001, format="%.3f", key="t_w")
 with col_v:
-    target_v = st.number_input("目标总体积 cbm", min=0.001, step=0.001, format="%.3f", key="t_v")
+    target_v = st.number_input("目标总体积 cbm", min_value=0.001, step=0.001, format="%.3f", key="t_v")
 
 adjust_btn = st.button("🔄 按比例重新计算重量体积", key="adj_btn")
 st.markdown('</div>', unsafe_allow_html=True)
