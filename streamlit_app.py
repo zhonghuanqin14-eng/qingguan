@@ -15,6 +15,7 @@ st.markdown("""
 .card {background:#f9fafb; padding:22px; border-radius:10px; margin-bottom:16px;}
 .btn-main {background:#2563eb; color:white; font-size:16px; padding:8px 26px; border:none; border-radius:8px;}
 .btn-main:hover {background:#1d4ed8;}
+.info-block {background:#eef6ff; padding:12px; border-radius:8px; margin-top:10px; border-left:4px #2563eb solid;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -36,7 +37,8 @@ ACCOUNT_INFO = {
 # 清关模板坐标
 CLEAR_MAP = {
     "fba_no": "J8","ship_name": "B7","ship_addr": "B8","ship_contact": "B9","ship_tel": "B10",
-    "imp_name": "E7","imp_addr": "E8","imp_contact": "E9","imp_tel": "E10","manu_name": "C38","manu_addr": "C39",
+    "imp_name": "E7","imp_addr": "E8","imp_contact": "E9","imp_tel": "E10",
+    "manu_name": "C38","manu_addr": "C39",
     "data_start":22,"data_end":35,"total_row":36,"weight_col":14,"vol_col":16
 }
 # 截单LCL模板坐标
@@ -49,7 +51,7 @@ TEMPLATE_FILE = "AL0-SBU6B5D6EZU6S.xlsx"
 # ===================== 页面标题 =====================
 st.markdown('<div class="main-title">📦 单证批量处理工具</div>', unsafe_allow_html=True)
 
-# ===================== 模块1：FBA清关单生成（生成即自动下载） =====================
+# ===================== 模块1：FBA清关单生成（下拉下方展示公司信息） =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.subheader("1. FBA清关单批量生成")
 col1, col2 = st.columns([0.48, 0.48], gap="medium")
@@ -58,11 +60,18 @@ with col1:
 with col2:
     acc_list = list(ACCOUNT_INFO.keys())
     select_acc = st.selectbox("选择账号", options=acc_list, key="acc_sel")
+    # 账号下拉下方展示公司信息
+    acc_detail = ACCOUNT_INFO[select_acc]
+    st.markdown('<div class="info-block">', unsafe_allow_html=True)
+    st.write(f"公司：{acc_detail['shipper_name']}")
+    st.write(f"地址：{acc_detail['shipper_addr']}")
+    st.write(f"联系人：{acc_detail['contact']} | 电话：{acc_detail['phone']}")
+    st.markdown('</div>', unsafe_allow_html=True)
 
 gen_clear = st.button("生成并下载清关资料", key="gen_clear", type="primary")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# 清关生成逻辑（一键生成直接下载）
+# 清关生成逻辑（一键生成自动下载）
 if gen_clear:
     if not file_clear:
         st.error("请上传数据源文件")
@@ -133,15 +142,15 @@ if gen_clear:
                 for fp in file_list:
                     zf.write(fp, os.path.basename(fp))
             zip_buf.seek(0)
-            # 直接触发下载，无需额外按钮
-            st.download_button(label="自动下载", data=zip_buf, file_name=zip_name, mime="application/zip", key="dl_clear_auto", hidden=True)
-            st.success(f"{zip_name} 已生成，自动开始下载")
-            tmp_dir.cleanup()
+            # 隐藏下载按钮，自动弹出下载
+            st.download_button(label="auto", data=zip_buf, file_name=zip_name, mime="application/zip", key="dl_clear_auto", hidden=True)
+            st.success(f"{zip_name} 已开始自动下载")
+            tmp_dir.cleanup
 
 # 分割线
 st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
-# ===================== 模块2：截单重量体积调整（生成即自动下载） =====================
+# ===================== 模块2：截单重量体积调整 =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.subheader("2. 截单重量体积比例调整")
 upload_cut = st.file_uploader("上传LCL截单Excel", type=["xlsx","xls"], key="cut_file")
@@ -172,7 +181,7 @@ if adjust_btn:
             if not al0_code:
                 al0_code = "未知编号"
             out_name = f"截单资料{al0_code}.xlsx"
-            # 加载表格
+
             wb = load_workbook(upload_cut)
             ws = wb.active
             s_r = CUT_MAP["data_start"]
@@ -183,7 +192,7 @@ if adjust_btn:
             raw = []
             sum_w_ori = 0.0
             sum_v_ori = 0.0
-            for r in range(s_r, e_r+1):
+            for r in range(s_r, e_r + 1):
                 wc = ws.cell(r, w_col)
                 vc = ws.cell(r, v_col)
                 try:
@@ -194,8 +203,8 @@ if adjust_btn:
                     sum_v_ori += vv
                 except:
                     continue
-            if sum_w_ori <=0 or sum_v_ori <=0:
-                st.error("文件内重量/体积总和为0，无法调整")
+            if sum_w_ori <= 0 or sum_v_ori <=0:
+                st.error("原始重量/体积总和为0，无法调整")
                 wb.close()
                 st.stop()
             # 缩放比例
@@ -206,40 +215,38 @@ if adjust_btn:
                 ew = ow * ratio_w
                 ev = ov * ratio_v
                 data_list.append([r, ew, ev])
-            # 精准分配算法，消除四舍五入误差
+            # 精准分配消除四舍五入误差
             target_w_int = int(round(target_w * 1000))
-            w_int_list = []
-            sum_wint = 0
+            w_ints = []
+            sumwi = 0
             for _, ew, _ in data_list:
                 i = int(round(ew * 1000))
-                w_int_list.append(i)
-                sum_wint += i
-            diff_w = target_w_int - sum_wint
-            w_int_list[-1] += diff_w
+                w_ints.append(i)
+                sumwi += i
+            w_ints[-1] += target_w_int - sumwi
 
             target_v_int = int(round(target_v * 1000))
-            v_int_list = []
-            sum_vint = 0
+            v_ints = []
+            sumvi = 0
             for _, _, ev in data_list:
                 i = int(round(ev * 1000))
-                v_int_list.append(i)
-                sum_vint += i
-            diff_v = target_v_int - sum_vint
-            v_int_list[-1] += diff_v
-            # 写入表格
+                v_ints.append(i)
+                sumvi += i
+            v_ints[-1] += target_v_int - sumvi
+            # 写入单元格
             for idx, (row_num, _, _) in enumerate(data_list):
-                final_w = w_int_list[idx] / 1000
-                final_v = v_int_list[idx] / 1000
+                final_w = w_ints[idx] / 1000
+                final_v = v_ints[idx] / 1000
                 ws.cell(row_num, w_col, value=final_w)
                 ws.cell(row_num, v_col, value=final_v)
-            # 保存到内存
+            # 保存内存文件
             buf = BytesIO()
             wb.save(buf)
             buf.seek(0)
             wb.close()
-            # 隐藏下载按钮，自动触发下载
-            st.download_button(label="自动下载", data=buf, file_name=out_name, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_cut_auto", hidden=True)
-            st.success(f"{out_name} 调整完成，自动开始下载")
+            # 自动下载
+            st.download_button(label="auto", data=buf, file_name=out_name, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_cut_auto", hidden=True)
+            st.success(f"{out_name} 已开始自动下载")
 
 # 底部极简说明
-st.markdown("<p style='color:#666; font-size:13px; margin-top:30px;'>上方：生成FBA清关打包文件 | 下方：调整LCL截单重量体积，数值保留3位小数</p>", unsafe_allow_html=True)
+st.markdown("<p style='color:#666; font-size:13px; margin-top:30px;'>上方：生成FBA清关打包文件，选择账号后可预览公司信息 | 下方：调整LCL截单重量体积，数值保留3位小数</p>", unsafe_allow_html=True)
