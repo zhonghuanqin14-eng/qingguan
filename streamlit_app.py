@@ -288,27 +288,6 @@ if gen_clear_btn:
             st.markdown('</div>', unsafe_allow_html=True)
             tmp_dir.cleanup()
 
-# ===================== 模块2：截单重量体积调整（适配LCL AMS模板，解决四舍五入总和偏移） =====================
-st.markdown('<div class="section-title">📦 截单资料重量体积比例调整</div>', unsafe_allow_html=True)
-st.markdown("<p class='info-text'>适配LCL AMS upload template，自动修正四舍五入误差，最终合计严格等于输入的目标总重/总体积，数值保留3位小数</p>", unsafe_allow_html=True)
-
-st.markdown('<div class="card">', unsafe_allow_html=True)
-# 独立文件上传
-st.subheader("1. 上传截单Excel文件")
-upload_cut = st.file_uploader("", type=["xlsx", "xls"], key="cut_file")
-if upload_cut is not None:
-    st.success("✅ 已读取截单文件")
-
-# 双输入框
-col_w, col_v = st.columns([0.48, 0.48], gap="medium")
-with col_w:
-    target_w = st.number_input("目标总重量 kg", min_value=0.001, step=0.001, format="%.3f", key="t_w")
-with col_v:
-    target_v = st.number_input("目标总体积 cbm", min_value=0.001, step=0.001, format="%.3f", key="t_v")
-
-adjust_btn = st.button("🔄 按比例重新计算重量体积", key="adj_btn")
-st.markdown('</div>', unsafe_allow_html=True)
-
 # 截单调整逻辑（彻底解决四舍五入总和偏差）
 if adjust_btn:
     if upload_cut is None:
