@@ -309,14 +309,14 @@ with col_v:
 adjust_btn = st.button("🔄 按比例重新计算重量体积", key="adj_btn")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# 截单调整逻辑（修复总和偏差）
+# 截单调整逻辑（彻底解决四舍五入总和偏差）
 if adjust_btn:
     if upload_cut is None:
         st.error("❌ 请先上传截单Excel！")
     elif target_w <=0 or target_v <=0:
         st.error("❌ 目标重量/体积必须大于0！")
     else:
-        with st.spinner("⏳ 正在按比例重算数据，自动修正四舍五入误差..."):
+        with st.spinner("⏳ 正在按比例重算数据，强制锁定总和等于目标值..."):
             wb = load_workbook(upload_cut)
             ws = wb.active
             s_r = CUTTING_CELL_MAP["data_start_row"]
@@ -331,8 +331,8 @@ if adjust_btn:
                 st.warning(f"⚠️ 表头校验提示：预期毛重列名{CUTTING_CELL_MAP['gross_weight_header']}，体积列名{CUTTING_CELL_MAP['volume_header']}")
 
             raw_rows = []
-            sum_w = 0.0
-            sum_v = 0.0
+            sum_w_ori = 0.0
+            sum_v_ori = 0.0
             for r in range(s_r, e_r + 1):
                 w_cell = ws.cell(row=r, column=w_col)
                 v_cell = ws.cell(row=r, column=v_col)
@@ -340,43 +340,53 @@ if adjust_btn:
                     w_val = float(w_cell.value)
                     v_val = float(v_cell.value)
                     raw_rows.append([r, w_val, v_val])
-                    sum_w += w_val
-                    sum_v += v_val
+                    sum_w_ori += w_val
+                    sum_v_ori += v_val
                 except Exception as e:
                     continue
 
-            if sum_w <= 0 or sum_v <=0:
-                st.error(f"❌ 原始总重：{round(sum_w,3)}kg，总体积：{round(sum_v,3)}cbm，无法缩放！")
+            if sum_w_ori <= 0 or sum_v_ori <=0:
+                st.error(f"❌ 原始总重：{round(sum_w_ori,3)}kg，总体积：{round(sum_v_ori,3)}cbm，无法缩放！")
                 wb.close()
                 st.stop()
 
-            ratio_w = target_w / sum_w
-            ratio_v = target_v / sum_v
+            # 比例
+            ratio_w = target_w / sum_w_ori
+            ratio_v = target_v / sum_v_ori
 
-            adjusted_list = []
-            total_exact_w = 0.0
-            total_exact_v = 0.0
+            rows_data = []
             for r, ow, ov in raw_rows:
                 ew = ow * ratio_w
                 ev = ov * ratio_v
-                adjusted_list.append([r, ew, ev])
-                total_exact_w += ew
-                total_exact_v += ev
+                rows_data.append([r, ew, ev])
 
-            # 计算舍入后产生的差值，最后一行补齐差值，保证总和精准
-            round_total_w = round(total_exact_w, 3)
-            round_total_v = round(total_exact_v, 3)
-            delta_w = target_w - round_total_w
-            delta_v = target_v - round_total_v
+            # ========== 重量精准分配算法 ==========
+            target_w_int = int(round(target_w * 1000))
+            weight_ints = []
+            sum_w_int = 0
+            for _, ew, _ in rows_data:
+                i = int(round(ew * 1000))
+                weight_ints.append(i)
+                sum_w_int += i
+            diff_w = target_w_int - sum_w_int
+            # 差值分摊到最后一行
+            weight_ints[-1] += diff_w
 
-            # 逐行写入，最后一行补差值
-            for idx, (row_num, exact_w, exact_v) in enumerate(adjusted_list):
-                if idx == len(adjusted_list) - 1:
-                    final_w = round(exact_w, 3) + delta_w
-                    final_v = round(exact_v, 3) + delta_v
-                else:
-                    final_w = round(exact_w, 3)
-                    final_v = round(exact_v, 3)
+            # ========== 体积精准分配算法 ==========
+            target_v_int = int(round(target_v * 1000))
+            vol_ints = []
+            sum_v_int = 0
+            for _, _, ev in rows_data:
+                i = int(round(ev * 1000))
+                vol_ints.append(i)
+                sum_v_int += i
+            diff_v = target_v_int - sum_v_int
+            vol_ints[-1] += diff_v
+
+            # 写入单元格，除以1000还原3位小数
+            for idx, (row_num, _, _) in enumerate(rows_data):
+                final_w = weight_ints[idx] / 1000
+                final_v = vol_ints[idx] / 1000
                 ws.cell(row=row_num, column=w_col, value=final_w)
                 ws.cell(row=row_num, column=v_col, value=final_v)
 
@@ -386,9 +396,9 @@ if adjust_btn:
             wb.close()
 
             st.markdown('<div class="card">', unsafe_allow_html=True)
-            st.success("✅ 调整完成！已自动修正小数舍入误差，最终合计严格等于目标值")
-            st.write(f"📊 原始总重：{round(sum_w,3)} kg → 目标总重：{target_w:.3f} kg")
-            st.write(f"📊 原始总体积：{round(sum_v,3)} cbm → 目标总体积：{target_v:.3f} cbm")
+            st.success("✅ 调整完成！已强制锁定合计值与目标完全一致，所有数值保留3位小数")
+            st.write(f"📊 原始总重：{round(sum_w_ori,3)} kg → 目标总重：{target_w:.3f} kg")
+            st.write(f"📊 原始总体积：{round(sum_v_ori,3)} cbm → 目标总体积：{target_v:.3f} cbm")
             st.markdown('<div class="download-btn">', unsafe_allow_html=True)
             st.download_button("📥 下载调整后截单Excel", buf, "截单资料_调整后.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_cut")
             st.markdown("</div>", unsafe_allow_html=True)
