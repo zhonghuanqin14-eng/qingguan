@@ -10,13 +10,12 @@ from io import BytesIO
 
 # ===================== 全局页面美化配置 =====================
 st.set_page_config(
-    page_title="FBA清关单批量生成工具",
+    page_title="FBA清关&截单资料工具",
     page_icon="📦",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# 自定义CSS美化页面控件、卡片、配色
 custom_css = """
 <style>
 .main-title {
@@ -24,11 +23,6 @@ custom_css = """
     color: #165DFF;
     font-weight: 700;
     margin-bottom: 10px;
-}
-.sub-title {
-    font-size: 16px;
-    color: #666666;
-    margin-bottom: 30px;
 }
 .card {
     background-color: #f8fafc;
@@ -63,6 +57,12 @@ custom_css = """
     padding: 16px;
     border-radius: 8px;
     border-left: 4px solid #165DFF;
+}
+.section-title {
+    font-size: 24px;
+    color: #165DFF;
+    font-weight: 600;
+    margin: 30px 0 20px 0;
 }
 </style>
 """
@@ -152,33 +152,35 @@ CELL_MAP = {
     "manu_addr": "C39",
     "data_start_row": 22,
     "data_end_clear_row": 35,
-    "total_row": 36
+    "total_row": 36,
+    "gross_weight_col": 14,
+    "volume_col": 16
 }
 
 TEMPLATE_FILE = "AL0-SBU6B5D6EZU6S.xlsx"
 
-# ===================== 页面标题区域 =====================
+# ===================== 页面标题 =====================
 st.markdown('<div class="main-title">📦 FBA清关单批量生成工具</div>', unsafe_allow_html=True)
 st.divider()
 
-# ===================== 双栏布局 =====================
+# ===================== 模块1：FBA清关单生成（独立上传文件） =====================
 col_left, col_right = st.columns([0.48, 0.48], gap="medium")
-
-# 左侧上传
+# 左侧：清关数据源上传
 with col_left:
     st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader("📁 第一步：上传数据源Excel")
-    upload_data = st.file_uploader("", type=["xlsx", "xls"])
-    if upload_data is not None:
-        st.success(f"✅ 已读取文件：{upload_data.name}")
+    st.subheader("📁 第一步：上传清单数据源Excel")
+    st.markdown("<p class='info-text'>文件内需包含【FBA编号】列</p>", unsafe_allow_html=True)
+    upload_clear = st.file_uploader("", type=["xlsx", "xls"], key="clear_file")
+    if upload_clear is not None:
+        st.success("✅ 已读取文件")
     st.markdown('</div>', unsafe_allow_html=True)
 
-# 右侧账号选择
+# 右侧：账号选择
 with col_right:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("🏢 第二步：选择发货账号")
     acc_list = list(ACCOUNT_INFO.keys())
-    select_acc = st.selectbox("", options=acc_list, format_func=lambda x: f"账号{x}")
+    select_acc = st.selectbox("", options=acc_list, format_func=lambda x: f"账号{x}", key="acc_sel")
     current_acc = ACCOUNT_INFO[select_acc]
     st.markdown("<div class='preview-box'>", unsafe_allow_html=True)
     st.write(f"**公司名称：** {current_acc['shipper_name']}")
@@ -187,22 +189,22 @@ with col_right:
     st.markdown("</div>", unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-# 生成按钮区
+# 清关生成按钮
 st.markdown('<div class="card">', unsafe_allow_html=True)
 col_btn, _ = st.columns([0.2, 0.8])
 with col_btn:
-    gen_btn = st.button("🚀 开始批量生成清关文件")
+    gen_clear_btn = st.button("🚀 开始批量生成清关文件", key="gen_clear")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# ===================== 生成逻辑 =====================
-if gen_btn:
-    if upload_data is None:
-        st.error("❌ 请先上传数据源Excel文件！")
+# 清关生成逻辑
+if gen_clear_btn:
+    if upload_clear is None:
+        st.error("❌ 请上传清单数据源Excel！")
     elif not os.path.exists(TEMPLATE_FILE):
-        st.error(f"❌ 固定模板文件【{TEMPLATE_FILE}】缺失，请确认模板已上传仓库根目录！")
+        st.error(f"❌ 模板{TEMPLATE_FILE}缺失！")
     else:
-        with st.spinner("⏳ 正在解析数据、生成全部FBA清关单，请稍候..."):
-            df = pd.read_excel(upload_data)
+        with st.spinner("⏳ 正在生成清关单..."):
+            df = pd.read_excel(upload_clear)
             groups = df.groupby("FBA编号")
             acc_data = ACCOUNT_INFO[select_acc]
             tmp_dir = tempfile.TemporaryDirectory()
@@ -212,29 +214,24 @@ if gen_btn:
             for fba_id, group_df in groups:
                 wb = load_workbook(TEMPLATE_FILE)
                 ws = wb.active
-                # 填充发货人
                 ws[CELL_MAP["ship_name"]].value = acc_data["shipper_name"]
                 ws[CELL_MAP["ship_addr"]].value = acc_data["shipper_addr"]
                 ws[CELL_MAP["ship_contact"]].value = f"Contact:{acc_data['contact']}"
                 ws[CELL_MAP["ship_tel"]].value = f"Phone:{acc_data['phone']}"
-                # 进口商
                 ws[CELL_MAP["imp_name"]].value = acc_data["shipper_name"]
                 ws[CELL_MAP["imp_addr"]].value = acc_data["shipper_addr"]
                 ws[CELL_MAP["imp_contact"]].value = f"Contact:{acc_data['contact']}"
                 ws[CELL_MAP["imp_tel"]].value = f"Phone:{acc_data['phone']}"
-                # 制造商
                 ws[CELL_MAP["manu_name"]].value = acc_data["shipper_name"]
                 ws[CELL_MAP["manu_addr"]].value = acc_data["shipper_addr"]
                 ws[CELL_MAP["fba_no"]].value = fba_id
 
-                # 清空明细
                 s_r = CELL_MAP["data_start_row"]
                 e_r = CELL_MAP["data_end_clear_row"]
                 for r in range(s_r, e_r + 1):
                     for c in range(2, 17):
                         ws.cell(row=r, column=c, value=None)
 
-                # 写入明细
                 data_rows = group_df.values.tolist()
                 for idx, row_data in enumerate(data_rows):
                     curr_r = s_r + idx
@@ -247,11 +244,10 @@ if gen_btn:
                     ws.cell(row=curr_r, column=10, value=row_data[8])
                     ws.cell(row=curr_r, column=11, value=f"=J{curr_r}*I{curr_r}")
                     ws.cell(row=curr_r, column=13, value=row_data[11])
-                    ws.cell(row=curr_r, column=14, value=row_data[12])
+                    ws.cell(row=curr_r, column=14, value=round(row_data[12],3))
                     ws.cell(row=curr_r, column=15, value=row_data[13])
-                    ws.cell(row=curr_r, column=16, value=row_data[14])
+                    ws.cell(row=curr_r, column=16, value=round(row_data[14],3))
 
-                # 合计公式
                 data_end_r = s_r + len(data_rows) - 1
                 total_r = CELL_MAP["total_row"]
                 ws.cell(row=total_r, column=11, value=f"=SUM(K{s_r}:K{data_end_r})")
@@ -265,26 +261,107 @@ if gen_btn:
                 wb.close()
                 out_file_list.append(save_file)
 
-            # 打包自定义名称zip
             zip_buffer = BytesIO()
             zip_name = f"{select_acc}清关资料.zip"
             with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
                 for f_path in out_file_list:
-                    f_name = os.path.basename(f_path)
-                    zf.write(f_path, f_name)
+                    zf.write(f_path, os.path.basename(f_path))
             zip_buffer.seek(0)
 
-            # 下载卡片
             st.markdown('<div class="card">', unsafe_allow_html=True)
-            st.success(f"🎉 文件生成完成！共生成 {len(out_file_list)} 份独立FBA清关单证")
+            st.success(f"🎉 清关单生成完成！共{len(out_file)}份")
             st.markdown('<div class="download-btn">', unsafe_allow_html=True)
-            st.download_button(
-                label="📥 点击下载全部文件 ZIP 压缩包",
-                data=zip_buffer,
-                file_name=zip_name,
-                mime="application/zip"
-            )
+            st.download_button("📥 下载清关资料ZIP", zip_buffer, zip_name, "application/zip", key="dl_clear")
             st.markdown("</div>", unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
             tmp_dir.cleanup()
 
+# ===================== 模块2：截单重量体积调整（独立上传，完全隔离） =====================
+st.markdown('<div class="section-title">📦 截单资料重量体积比例调整</div>', unsafe_allow_html=True)
+st.markdown("<p class='info-text'>单独上传截单Excel，输入目标总重/总体积，自动按比例缩放，数值保留3位小数</p>", unsafe_allow_html=True)
+
+st.markdown('<div class="card">', unsafe_allow_html=True)
+# 独立文件上传
+st.subheader("1. 上传截单Excel文件")
+upload_cut = st.file_uploader("", type=["xlsx", "xls"], key="cut_file")
+if upload_cut is not None:
+    st.success("✅ 已读取截单文件")
+
+# 双输入框
+col_w, col_v = st.columns([0.48, 0.48], gap="medium")
+with col_w:
+    target_w = st.number_input("目标总重量 kg", min=0.001, step=0.001, format="%.3f", key="t_w")
+with col_v:
+    target_v = st.number_input("目标总体积 cbm", min=0.001, step=0.001, format="%.3f", key="t_v")
+
+adjust_btn = st.button("🔄 按比例重新计算重量体积", key="adj_btn")
+st.markdown('</div>', unsafe_allow_html=True)
+
+# 截单调整逻辑
+if adjust_btn:
+    if upload_cut is None:
+        st.error("❌ 请先上传截单Excel！")
+    elif target_w <=0 or target_v <=0:
+        st.error("❌ 目标重量/体积必须大于0！")
+    else:
+        with st.spinner("⏳ 正在按比例重算数据..."):
+            wb = load_workbook(upload_cut)
+            ws = wb.active
+            s_r = CELL_MAP["data_start_row"]
+            e_r = CELL_MAP["data_end_clear_row"]
+            w_col = CELL_MAP["gross_weight_col"]
+            v_col = CELL_MAP["volume_col"]
+
+            sum_w = 0.0
+            sum_v = 0.0
+            row_data_list = []
+
+            for r in range(s_r, e_r + 1):
+                w_cell = ws.cell(row=r, column=w_col)
+                v_cell = ws.cell(row=r, column=v_col)
+                try:
+                    w_val = float(w_cell.value)
+                    v_val = float(v_cell.value)
+                    row_data_list.append([r, w_val, v_val])
+                    sum_w += w_val
+                    sum_v += v_val
+                except:
+                    continue
+
+            if sum_w <= 0 or sum_v <=0:
+                st.error("❌ 文件内原始总重/体积为0，无法缩放！")
+                wb.close()
+                st.stop()
+
+            ratio_w = target_w / sum_w
+            ratio_v = target_v / sum_v
+
+            # 逐行重写，保留3位小数
+            for r, ow, ov in row_data_list:
+                new_w = round(ow * ratio_w, 3)
+                new_v = round(ov * ratio_v, 3)
+                ws.cell(row=r, column=w_col, value=new_w)
+                ws.cell(row=r, column=v_col, value=new_v)
+
+            # 更新合计公式
+            total_r = CELL_MAP["total_row"]
+            ws.cell(row=total_r, column=w_col, value=f"=SUM(N{s_r}:N{e_r})")
+            ws.cell(row=total_r, column=v_col, value=f"=SUM(P{s_r}:P{e_r})")
+
+            buf = BytesIO()
+            wb.save(buf)
+            buf.seek(0)
+            wb.close()
+
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.success("✅ 调整完成，所有重量体积已保留3位小数")
+            st.write(f"原总重：{round(sum_w,3)} kg → 目标：{round(target_w,3)} kg")
+            st.write(f"原总体积：{round(sum_v,3)} cbm → 目标：{round(target_v,3)} cbm")
+            st.markdown('<div class="download-btn">', unsafe_allow_html=True)
+            st.download_button("📥 下载调整后截单Excel", buf, "截单资料_调整后.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_cut")
+            st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+# 底部说明
+st.divider()
+st.markdown("<p class='info-text'>💡 上下模块独立上传文件；重量体积统一保留3位小数；清关单制造商信息完整不丢失</p>", unsafe_allow_html=True)
