@@ -19,22 +19,77 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ===================== 账号配置（清关模块专用） =====================
+# ===================== 账号配置（清关模块专用，括号完整闭合） =====================
 ACCOUNT_INFO = {
-    "39": {"shipper_name": "Shenzhen Longyuan Junjie Technology Co., Ltd.","shipper_addr": "Room 502, No. 5, Ruiyuan Second Lane, Nanlian Community, Longgang Subdistrict, Longgang District, Shenzhen,Guangdong,China","contact": "ZHOUJUNJIE","phone": "+8613427679670"},
-    "79": {"shipper_name": "Mingtongsheng (Shenzhen) E-commerce Co., Ltd.","shipper_addr": "3A Zijing Pavilion, Building 4, Baizhu Garden, 249 Zhuguang Road, Longlian Community, Tao Yuan Street, Nanshan District, Shenzhen,Guangdong,China","contact": "LIMIN","phone": "+8613902478270"},
-    "76": {"shipper_name": "Shenzhen Chengziwei Technology Co., Ltd.","shipper_addr": "B410, Buildings 2 and 3, Mingliang Technology Park, No. 88 Zhuguang North Road, Pingshan Community, Tao Yuan Street, Nanshan District, Shenzhen,Guangdong,China","contact": "CHENZIWEI","phone": "+8615875396146"},
-    "47.92": {"shipper_name": "Shenzhen Dongshan Jinhao Technology Co., Ltd.","shipper_addr": "Room 108, Building 8, Maker Town, Xili Street, Nanshan District, Shenzhen,Guangdong,China","contact": "CHENJINHAO","phone": "+8613530567440"},
-    "47.100": {"shipper_name": "Shenzhen Weizhite Technology Co., Ltd.","shipper_addr": "410, Building 2-3, Bright Technology Park, No. 88 Zhuguang North Road, Pingshan Community, Taoyuan Street, Nanshan District, Shenzhen,Guangdong,China","contact": "CHENSIFA","phone": "+8615986680681"},
-    "47.99": {"shipper_name": "Shenzhen Shunhuixiong Technology Co., Ltd.","shipper_addr": "115, Building 10, Maker Town, No. 4109 Liuxian Avenue, Pingshan Community, Taoyuan Street, Nanshan District, Shenzhen,Guangdong,China","contact": "LIANGRIXIONG","phone": "+8618026938073"},
-    "70": {"shipper_name": "Shenzhen Xingyuepan Technology Co., Ltd.","shipper_addr": "B429, No. 22 Dakan Industrial 2nd Road, Daguan Community, Xili Street, Nanshan District, Shenzhen,Guangdong,China","contact": "LIUBIN","phone": "+8613530369614"},
-    "71": {"shipper_name": "Shenzhen Chenghai Liufa Technology Co., Ltd.","shipper_addr": "28C, Unit A, Building 3, Xiangshanli Phase 5, Wenchang Street Community, Shahe Street, Nanshan District, Shenzhen,Guangdong,China","contact": "GULIUFA","phone": "+8617744965296"},
-    "8.1": {"shipper_name": "Shenzhen Shiqi Jiechao Technology Co., Ltd.","shipper_addr": "Tianxi Xiaoju V211, No. 10 Ruihua North Lane, Nanlian Community, Longgang Street, Longgang District, Shenzhen,Guangdong,China","contact": "LUJIECHAO","phone": "+8613670528672"},
-    "47.108": {"shipper_name": "Guangzhou Changyou Weilin Technology Co., Ltd.","shipper_addr": "Shop 422, No. 15 Yihe Road, Liwan District, Guangzhou,Guangdong,China","contact": "LUOSILIN","phone": "+8615728285292"},
-    "47.239": {"shipper_name": "Hong Kong LingLingQinLv Technology Limited","shipper_addr": "UNIT F22,RM 6, 10/F, LEMMI CENTRE, 50 HOI YUEN ROAD,Kwun Tong,Hong Kong","contact": "LUQINGLING","phone": "+8619864368710"}
+    "39": {
+        "shipper_name": "Shenzhen Longyuan Junjie Technology Co., Ltd.",
+        "shipper_addr": "Room 502, No. 5, Ruiyuan Second Lane, Nanlian Community, Longgang Subdistrict, Longgang District, Shenzhen,Guangdong,China",
+        "contact": "ZHOUJUNJIE",
+        "phone": "+8613427679670"
+    },
+    "79": {
+        "shipper_name": "Mingtongsheng (Shenzhen) E-commerce Co., Ltd.",
+        "shipper_addr": "3A Zijing Pavilion, Building 4, Baizhu Garden, 249 Zhuguang Road, Longlian Community, Tao Yuan Street, Nanshan District, Shenzhen,Guangdong,China",
+        "contact": "LIMIN",
+        "phone": "+8613902478270"
+    },
+    "76": {
+        "shipper_name": "Shenzhen Chengziwei Technology Co., Ltd.",
+        "shipper_addr": "B410, Buildings 2 and 3, Mingliang Technology Park, No. 88 Zhuguang North Road, Pingshan Community, Tao Yuan Street, Nanshan District, Shenzhen,Guangdong,China",
+        "contact": "CHENZIWEI",
+        "phone": "+8615875396146"
+    },
+    "47.92": {
+        "shipper_name": "Shenzhen Dongshan Jinhao Technology Co., Ltd.",
+        "shipper_addr": "Room 108, Building 8, Maker Town, Xili Street, Nanshan District, Shenzhen,Guangdong,China",
+        "contact": "CHENJINHAO",
+        "phone": "+8613530567440"
+    },
+    "47.100": {
+        "shipper_name": "Shenzhen Weizhite Technology Co., Ltd.",
+        "shipper_addr": "410, Building 2-3, Bright Technology Park, No. 88 Zhuguang North Road, Pingshan Community, Taoyuan Street, Nanshan District, Shenzhen,Guangdong,China",
+        "contact": "CHENSIFA",
+        "phone": "+8615986680681"
+    },
+    "47.99": {
+        "shipper_name": "Shenzhen Shunhuixiong Technology Co., Ltd.",
+        "shipper_addr": "115, Building 10, Maker Town, No. 4109 Liuxian Avenue, Pingshan Community, Taoyuan Street, Nanshan District, Shenzhen,Guangdong,China",
+        "contact": "LIANGRIXIONG",
+        "phone": "+8618026938073"
+    },
+    "70": {
+        "shipper_name": "Shenzhen Xingyuepan Technology Co., Ltd.",
+        "shipper_addr": "B429, No. 22 Dakan Industrial 2nd Road, Daguan Community, Xili Street, Nanshan District, Shenzhen,Guangdong,China",
+        "contact": "LIUBIN",
+        "phone": "+8613530369614"
+    },
+    "71": {
+        "shipper_name": "Shenzhen Chenghai Liufa Technology Co., Ltd.",
+        "shipper_addr": "28C, Unit A, Building 3, Xiangshanli Phase 5, Wenchang Street Community, Shahe Street, Nanshan District, Shenzhen,Guangdong,China",
+        "contact": "GULIUFA",
+        "phone": "+8617744965296"
+    },
+    "8.1": {
+        "shipper_name": "Shenzhen Shiqi Jiechao Technology Co., Ltd.",
+        "shipper_addr": "Tianxi Xiaoju V211, No. 10 Ruihua North Lane, Nanlian Community, Longgang Street, Longgang District, Shenzhen,Guangdong,China",
+        "contact": "LUJIECHAO",
+        "phone": "+8613670528672"
+    },
+    "47.108": {
+        "shipper_name": "Guangzhou Changyou Weilin Technology Co., Ltd.",
+        "shipper_addr": "Shop 422, No. 15 Yihe Road, Liwan District, Guangzhou,Guangdong,China",
+        "contact": "LUOSILIN",
+        "phone": "+8615728285292"
+    },
+    "47.239": {
+        "shipper_name": "Hong Kong LingLingQinLv Technology Limited",
+        "shipper_addr": "UNIT F22,RM 6, 10/F, LEMMI CENTRE, 50 HOI YUEN ROAD,Kwun Tong,Hong Kong",
+        "contact": "LUQINGLING",
+        "phone": "+8619864368710"
+    }
 }
 
-# 清关模板坐标（适配新的FBA US Combined Commercial Invoice模板）
+# 清关模板坐标（修复合并单元格报错，括号完整）
 CLEAR_MAP = {
     "fba_no": "J7",
     "ship_name": "B4",
@@ -46,26 +101,30 @@ CLEAR_MAP = {
     "imp_contact": "E9",
     "imp_tel": "E10",
     "manu_name": "B39",
-    "manu_addr": "B39",
+    "manu_addr": "B40",
     "data_start_row": 22,
     "data_end_clear_row": 35,
     "total_row": 36,
-    "weight_col": 15,  # 毛重O列
-    "vol_col": 17       # 体积Q列
-}
+    "weight_col": 15,
+    "vol_col": 17
 }
 # 截单LCL模板坐标
 CUT_MAP = {
-    "header_row":3,"data_start":4,"data_end":7,"weight_col":3,"vol_col":4,
-    "weight_head":"Gross weight","vol_head":"Volume"
+    "header_row":3,
+    "data_start":4,
+    "data_end":7,
+    "weight_col":3,
+    "vol_col":4,
+    "weight_head":"Gross weight",
+    "vol_head":"Volume"
 }
-# 新模板文件名（替换成你上传的新模板名称）
+# 模板文件名
 TEMPLATE_FILE = "FBA US Combined Commercial Invoice Packing List.xlsx"
 
 # ===================== 页面标题 =====================
 st.markdown('<div class="main-title">📦 单证批量处理工具</div>', unsafe_allow_html=True)
 
-# ===================== 模块1：FBA清关单生成（适配新模板） =====================
+# ===================== 模块1：FBA清关单生成 =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.subheader("1. FBA清关单批量生成")
 col1, col2 = st.columns([0.48, 0.48], gap="medium")
@@ -74,7 +133,6 @@ with col1:
 with col2:
     acc_list = list(ACCOUNT_INFO.keys())
     select_acc = st.selectbox("选择账号", options=acc_list, key="acc_sel")
-    # 账号下拉下方展示公司信息
     acc_detail = ACCOUNT_INFO[select_acc]
     st.markdown('<div class="info-block">', unsafe_allow_html=True)
     st.write(f"公司：{acc_detail['shipper_name']}")
@@ -85,7 +143,7 @@ with col2:
 gen_clear = st.button("生成并下载清关资料", key="gen_clear", type="primary")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# 清关生成逻辑（适配新模板）
+# 清关生成逻辑
 if gen_clear:
     if not file_clear:
         st.error("请上传数据源文件")
@@ -104,50 +162,49 @@ if gen_clear:
                 wb = load_workbook(TEMPLATE_FILE)
                 ws = wb.active
                 # 填充发货人信息
-ws[CLEAR_MAP["ship_name"]].value = acc_info["shipper_name"]
-ws[CLEAR_MAP["ship_addr"]].value = acc_info["shipper_addr"]
-ws[CLEAR_MAP["ship_contact"]].value = f"Contact:{acc_info['contact']}"
-ws[CLEAR_MAP["ship_tel"]].value = f"Phone:{acc_info['phone']}"
-# 填充进口商信息
-ws[CLEAR_MAP["imp_name"]].value = acc_info["shipper_name"]
-ws[CLEAR_MAP["imp_addr"]].value = acc_info["shipper_addr"]
-ws[CLEAR_MAP["imp_contact"]].value = f"Contact:{acc_info['contact']}"
-ws[CLEAR_MAP["imp_tel"]].value = f"Phone:{acc_info['phone']}"
-# 填充制造商信息（修复合并单元格冲突，分两行写入）
-ws[CLEAR_MAP["manu_name"]].value = acc_info["shipper_name"]
-ws[CLEAR_MAP["manu_addr"]].value = acc_info["shipper_addr"]
-# 填充FBA编号
-ws[CLEAR_MAP["fba_no"]].value = fba_id
+                ws[CLEAR_MAP["ship_name"]].value = acc_info["shipper_name"]
+                ws[CLEAR_MAP["ship_addr"]].value = acc_info["shipper_addr"]
+                ws[CLEAR_MAP["ship_contact"]].value = f"Contact:{acc_info['contact']}"
+                ws[CLEAR_MAP["ship_tel"]].value = f"Phone:{acc_info['phone']}"
+                # 填充进口商信息
+                ws[CLEAR_MAP["imp_name"]].value = acc_info["shipper_name"]
+                ws[CLEAR_MAP["imp_addr"]].value = acc_info["shipper_addr"]
+                ws[CLEAR_MAP["imp_contact"]].value = f"Contact:{acc_info['contact']}"
+                ws[CLEAR_MAP["imp_tel"]].value = f"Phone:{acc_info['phone']}"
+                # 填充制造商信息（分离单元格，无合并报错）
+                ws[CLEAR_MAP["manu_name"]].value = acc_info["shipper_name"]
+                ws[CLEAR_MAP["manu_addr"]].value = acc_info["shipper_addr"]
+                # 填充FBA编号
+                ws[CLEAR_MAP["fba_no"]].value = fba_id
                 # 清空旧数据
                 s_r = CLEAR_MAP["data_start_row"]
                 e_r = CLEAR_MAP["data_end_clear_row"]
                 for r in range(s_r, e_r+1):
-                    for c in range(2, 18):  # 覆盖到Q列
+                    for c in range(2, 18):
                         ws.cell(row=r, column=c, value=None)
-                # 写入新明细（适配新模板列顺序）
+                # 写入明细
                 rows = group.values.tolist()
                 for idx, row in enumerate(rows):
                     r = s_r + idx
-                    ws.cell(r, 2, row[0])  # Part # B列
-                    ws.cell(r, 3, row[1])  # Description C列
-                    ws.cell(r, 4, row[2])  # Material D列
-                    ws.cell(r, 5, row[3])  # HTS Code E列
-                    ws.cell(r, 8, "CN")   # 原产国 H列
-                    ws.cell(r, 9, row[7])  # 数量 I列
-                    ws.cell(r, 10, row[8]) # 单价 J列
-                    ws.cell(r, 11, f"=J{r}*I{r}") # 总价 K列
-                    ws.cell(r, 14, row[11]) # 箱数 N列
-                    ws.cell(r, 15, round(row[12],3)) # 毛重 O列
-                    ws.cell(r, 16, row[13]) # 净重 P列
-                    ws.cell(r, 17, round(row[14],3)) # 体积 Q列
-                # 合计公式（适配新模板合计行）
+                    ws.cell(r, 2, row[0])
+                    ws.cell(r, 3, row[1])
+                    ws.cell(r, 4, row[2])
+                    ws.cell(r, 5, row[3])
+                    ws.cell(r, 8, "CN")
+                    ws.cell(r, 9, row[7])
+                    ws.cell(r, 10, row[8])
+                    ws.cell(r, 11, f"=J{r}*I{r}")
+                    ws.cell(r, 14, row[11])
+                    ws.cell(r, 15, round(row[12],3))
+                    ws.cell(r, 16, row[13])
+                    ws.cell(r, 17, round(row[14],3))
+                # 合计公式
                 end_data = s_r + len(rows) -1
                 total_r = CLEAR_MAP["total_row"]
-                ws.cell(total_r, 11, f"=SUM(K{s_r}:K{end_data})") # 总价合计
-                ws.cell(total_r, 13, f"=SUM(M{s_r}:M{end_data})") # 箱数合计
-                ws.cell(total_r, 14, f"=SUM(N{s_r}:N{end_data})") # 毛重合计
-                ws.cell(total_r, 15, f"=SUM(O{s_r}:O{end_data})") # 净重合计
-                ws.cell(total_r, 16, f"=SUM(P{s_r}:P{end_data})") # 体积合计
+                ws.cell(total_r, 11, f"=SUM(K{s_r}:K{end_data})")
+                ws.cell(total_r, 14, f"=SUM(N{s_r}:N{end_data})")
+                ws.cell(total_r, 15, f"=SUM(O{s_r}:O{end_data})")
+                ws.cell(total_r, 17, f"=SUM(Q{s_r}:Q{end_data})")
                 save_path = os.path.join(tmp_path, f"{fba_id}.xlsx")
                 wb.save(save_path)
                 wb.close()
@@ -159,7 +216,6 @@ ws[CLEAR_MAP["fba_no"]].value = fba_id
                 for fp in file_list:
                     zf.write(fp, os.path.basename(fp))
             zip_buf.seek(0)
-            # 隐藏下载按钮，自动弹出下载
             st.download_button(label="auto", data=zip_buf, file_name=zip_name, mime="application/zip", key="dl_clear_auto", hidden=True)
             st.success(f"{zip_name} 已开始自动下载")
             tmp_dir.cleanup
@@ -179,7 +235,7 @@ with colv:
 adjust_btn = st.button("调整并下载截单资料", key="adj_btn", type="primary")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# 截单调整逻辑（一键生成直接下载）
+# 截单调整逻辑
 if adjust_btn:
     if not upload_cut:
         st.error("请上传截单Excel文件")
@@ -187,7 +243,6 @@ if adjust_btn:
         st.error("重量、体积必须大于0")
     else:
         with st.spinner("正在计算调整..."):
-            # 提取AL0编号
             fname = upload_cut.name
             name_no_ext = os.path.splitext(fname)[0]
             al0_code = ""
@@ -205,7 +260,6 @@ if adjust_btn:
             e_r = CUT_MAP["data_end"]
             w_col = CUT_MAP["weight_col"]
             v_col = CUT_MAP["vol_col"]
-            # 读取原始数据
             raw = []
             sum_w_ori = 0.0
             sum_v_ori = 0.0
@@ -224,7 +278,6 @@ if adjust_btn:
                 st.error("原始重量/体积总和为0，无法调整")
                 wb.close()
                 st.stop()
-            # 缩放比例
             ratio_w = target_w / sum_w_ori
             ratio_v = target_v / sum_v_ori
             data_list = []
@@ -232,7 +285,7 @@ if adjust_btn:
                 ew = ow * ratio_w
                 ev = ov * ratio_v
                 data_list.append([r, ew, ev])
-            # 精准分配消除四舍五入误差
+            # 精准分摊消除小数误差
             target_w_int = int(round(target_w * 1000))
             w_ints = []
             sumwi = 0
@@ -255,13 +308,10 @@ if adjust_btn:
                 final_w = w_ints[idx] / 1000
                 final_v = v_ints[idx] / 1000
                 ws.cell(row_num, w_col, value=final_w)
-                ws.cell(row_num, v_col, value=final_v)
-            # 保存内存文件
             buf = BytesIO()
             wb.save(buf)
             buf.seek(0)
             wb.close()
-            # 自动下载
             st.download_button(label="auto", data=buf, file_name=out_name, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_cut_auto", hidden=True)
             st.success(f"{out_name} 已开始自动下载")
 
