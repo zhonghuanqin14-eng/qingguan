@@ -101,10 +101,8 @@ CLEAR_MAP = {
     "imp_addr": "E4",
     "imp_contact": "E9",
     "imp_tel": "E10",
-    # 制造商改用数字行列：第39行，第2列(B列)
     "manu_name_row": 39,
     "manu_name_col": 2,
-    # 制造商地址 第40行，第2列
     "manu_addr_row": 40,
     "manu_addr_col": 2,
     "data_start_row": 22,
@@ -165,69 +163,63 @@ if gen_clear:
 
             # 循环层级固定4空格缩进
             for fba_id, group in groups:
-                wb = load_workbook(TEMPLATE_FILE)
-                ws = wb.active
+    wb = load_workbook(TEMPLATE_FILE)
+    ws = wb.active
 
-                # 填充发货人信息
-                ws[CLEAR_MAP["ship_name"]].value = acc_info["shipper_name"]
-                ws[CLEAR_MAP["ship_addr"]].value = acc_info["shipper_addr"]
-                ws[CLEAR_MAP["ship_contact"]].value = f"Contact:{acc_info['contact']}"
-                ws[CLEAR_MAP["ship_tel"]].value = f"Phone:{acc_info['phone']}"
-                # 填充进口商信息
-                ws[CLEAR_MAP["imp_name"]].value = acc_info["shipper_name"]
-                ws[CLEAR_MAP["imp_addr"]].value = acc_info["shipper_addr"]
-                ws[CLEAR_MAP["imp_contact"]].value = f"Contact:{acc_info['contact']}"
-                ws[CLEAR_MAP["imp_tel"]].value = f"Phone:{acc_info['phone']}"
-                # 填充制造商信息
-                # 制造商名称 B39
-                ws.cell(
-                row=CLEAR_MAP["manu_name_row"],
-                column=CLEAR_MAP["manu_name_col"]
-                ).value = acc_info["shipper_name"]
-                # 制造商地址 B40
-              ws.cell(
-              row=CLEAR_MAP["manu_addr_row"],
-              column=CLEAR_MAP["manu_addr_col"]
-               ).value = acc_info["shipper_addr"]
-                # 填充FBA编号
-                ws[CLEAR_MAP["fba_no"]].value = fba_id
+    # 填充发货人信息
+    ws[CLEAR_MAP["ship_name"]].value = acc_info["shipper_name"]
+    ws[CLEAR_MAP["ship_addr"]].value = acc_info["shipper_addr"]
+    ws[CLEAR_MAP["ship_contact"]].value = f"Contact:{acc_info['contact']}"
+    ws[CLEAR_MAP["ship_tel"]].value = f"Phone:{acc_info['phone']}"
+    # 填充进口商信息
+    ws[CLEAR_MAP["imp_name"]].value = acc_info["shipper_name"]
+    ws[CLEAR_MAP["imp_addr"]].value = acc_info["shipper_addr"]
+    ws[CLEAR_MAP["imp_contact"]].value = f"Contact:{acc_info['contact']}"
+    ws[CLEAR_MAP["imp_tel"]].value = f"Phone:{acc_info['phone']}"
+    
+    # 单行写入制造商，无换行缩进问题，强制填充不留空
+    ws.cell(row=CLEAR_MAP["manu_name_row"], column=CLEAR_MAP["manu_name_col"]).value = acc_info["shipper_name"]
+    ws.cell(row=CLEAR_MAP["manu_addr_row"], column=CLEAR_MAP["manu_addr_col"]).value = acc_info["shipper_addr"]
+    
+    # 填充FBA编号
+    ws[CLEAR_MAP["fba_no"]].value = fba_id
 
-                # 清空旧明细区域
-                s_r = CLEAR_MAP["data_start_row"]
-                e_r = CLEAR_MAP["data_end_clear_row"]
-                for r in range(s_r, e_r+1):
-                    for c in range(2, 18):
-                        ws.cell(row=r, column=c, value=None)
+    # 清空旧明细区域
+    s_r = CLEAR_MAP["data_start_row"]
+    e_r = CLEAR_MAP["data_end_clear_row"]
+    for r in range(s_r, e_r+1):
+        for c in range(2, 18):
+            ws.cell(row=r, column=c, value=None)
 
-                # 写入产品明细
-                rows = group.values.tolist()
-                for idx, row in enumerate(rows):
-                    r = s_r + idx
-                    ws.cell(r, 2, row[0])
-                    ws.cell(r, 3, row[1])
-                    ws.cell(r, 4, row[2])
-                    ws.cell(r, 5, row[3])
-                    ws.cell(r, 8, "CN")
-                    ws.cell(r, 9, row[7])
-                    ws.cell(r, 10, row[8])
-                    ws.cell(r, 11, f"=J{r}*I{r}")
-                    ws.cell(r, 14, row[11])
-                    ws.cell(r, 15, round(row[12],3))
-                    ws.cell(r, 16, row[13])
-                    ws.cell(r, 17, round(row[14],3))
+    # 写入产品明细
+    rows = group.values.tolist()
+    for idx, row in enumerate(rows):
+        r = s_r + idx
+        ws.cell(r, 2, row[0])
+        ws.cell(r, 3, row[1])
+        ws.cell(r, 4, row[2])
+        ws.cell(r, 5, row[3])
+        ws.cell(r, 8, "CN")
+        ws.cell(r, 9, row[7])
+        ws.cell(r, 10, row[8])
+        ws.cell(r, 11, f"=J{r}*I{r}")
+        ws.cell(r, 14, row[11])
+        ws.cell(r, 15, round(row[12],3))
+        ws.cell(r, 16, row[13])
+        ws.cell(r, 17, round(row[14],3))
 
-                # 合计行公式
-                end_data = s_r + len(rows) -1
-                total_r = CLEAR_MAP["total_row"]
-                ws.cell(total_r, 11, f"=SUM(K{s_r}:K{end_data})")
-                ws.cell(total_r, 14, f"=SUM(N{s_r}:N{end_data})")
-                ws.cell(total_r, 15, f"=SUM(O{s_r}:O{end_data})")
-                ws.cell(total_r, 17, f"=SUM(Q{s_r}:Q{end_data})")
+    # 合计行公式
+    end_data = s_r + len(rows) -1
+    total_r = CLEAR_MAP["total_row"]
+    ws.cell(total_r, 11, f"=SUM(K{s_r}:K{end_data})")
+    ws.cell(total_r, 14, f"=SUM(N{s_r}:N{end_data})")
+    ws.cell(total_r, 15, f"=SUM(O{s_r}:O{end_data})")
+    ws.cell(total_r, 17, f"=SUM(Q{s_r}:Q{end_data})")
 
-                save_path = os.path.join(tmp_path, f"{fba_id}.xlsx")
-                wb.save(save_path)
-                wb.close()
-                file_list.append(save_path)
+    save_path = os.path.join(tmp_path, f"{fba_id}.xlsx")
+    wb.save(save_path)
+    wb.close()
+    file_list.append(save_path)
 
             # 打包ZIP压缩包
             zip_buf = BytesIO()
