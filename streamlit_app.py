@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from openpyxl import load_workbook
+from openpyxl.worksheet.cell_range import CellRange
 import os
 import zipfile
 import tempfile
@@ -19,7 +20,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ===================== 账号配置（清关模块专用，括号完整闭合） =====================
+# ===================== 账号配置（括号完整闭合，缩进规范） =====================
 ACCOUNT_INFO = {
     "39": {
         "shipper_name": "Shenzhen Longyuan Junjie Technology Co., Ltd.",
@@ -89,7 +90,7 @@ ACCOUNT_INFO = {
     }
 }
 
-# 清关模板坐标（修复合并单元格报错，括号完整）
+# 清关模板坐标（适配新发票模板）
 CLEAR_MAP = {
     "fba_no": "J7",
     "ship_name": "B4",
@@ -143,7 +144,7 @@ with col2:
 gen_clear = st.button("生成并下载清关资料", key="gen_clear", type="primary")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# 清关生成逻辑
+# 清关生成逻辑（统一4空格缩进，无层级错乱）
 if gen_clear:
     if not file_clear:
         st.error("请上传数据源文件")
@@ -158,75 +159,82 @@ if gen_clear:
             tmp_path = tmp_dir.name
             file_list = []
 
-           for fba_id, group in groups:
-    wb = load_workbook(TEMPLATE_FILE)
-    ws = wb.active
-    # 新增：解除B39合并单元格
-    from openpyxl.worksheet.cell_range import CellRange
-    unmerge_target = None
-    for merged_range in ws.merged_cells.ranges:
-        cr = CellRange(merged_range)
-        if cr.min_row <= 39 <= cr.max_row and cr.min_col <= 2 <= cr.max_col:
-            unmerge_target = merged_range
-            break
-    if unmerge_target:
-        ws.unmerge_cells(range_string=str(unmerge_target))
+            # 循环层级固定4空格缩进
+            for fba_id, group in groups:
+                wb = load_workbook(TEMPLATE_FILE)
+                ws = wb.active
 
-    # 填充发货人信息
-    ws[CLEAR_MAP["ship_name"]].value = acc_info["shipper_name"]
-    ws[CLEAR_MAP["ship_addr"]].value = acc_info["shipper_addr"]
-    ws[CLEAR_MAP["ship_contact"]].value = f"Contact:{acc_info['contact']}"
-    ws[CLEAR_MAP["ship_tel"]].value = f"Phone:{acc_info['phone']}"
-    # 填充进口商信息
-    ws[CLEAR_MAP["imp_name"]].value = acc_info["shipper_name"]
-    ws[CLEAR_MAP["imp_addr"]].value = acc_info["shipper_addr"]
-    ws[CLEAR_MAP["imp_contact"]].value = f"Contact:{acc_info['contact']}"
-    ws[CLEAR_MAP["imp_tel"]].value = f"Phone:{acc_info['phone']}"
-    # 填充制造商信息（现在无合并单元格，可正常赋值）
-    ws[CLEAR_MAP["manu_name"]].value = acc_info["shipper_name"]
-    ws[CLEAR_MAP["manu_addr"]].value = acc_info["shipper_addr"]
-    # 填充FBA编号
-    ws[CLEAR_MAP["fba_no"]].value = fba_id
-    # 清空旧数据
-    s_r = CLEAR_MAP["data_start_row"]
-    e_r = CLEAR_MAP["data_end_clear_row"]
-    for r in range(s_r, e_r+1):
-        for c in range(2, 18):
-            ws.cell(row=r, column=c, value=None)
-    # 写入明细
-    rows = group.values.tolist()
-    for idx, row in enumerate(rows):
-        r = s_r + idx
-        ws.cell(r, 2, row[0])
-        ws.cell(r, 3, row[1])
-        ws.cell(r, 4, row[2])
-        ws.cell(r, 5, row[3])
-        ws.cell(r, 8, "CN")
-        ws.cell(r, 9, row[7])
-        ws.cell(r, 10, row[8])
-        ws.cell(r, 11, f"=J{r}*I{r}")
-        ws.cell(r, 14, row[11])
-        ws.cell(r, 15, round(row[12],3))
-        ws.cell(r, 16, row[13])
-        ws.cell(r, 17, round(row[14],3))
-    # 合计公式
-    end_data = s_r + len(rows) -1
-    total_r = CLEAR_MAP["total_row"]
-    ws.cell(total_r, 11, f"=SUM(K{s_r}:K{end_data})")
-    ws.cell(total_r, 14, f"=SUM(N{s_r}:N{end_data})")
-    ws.cell(total_r, 15, f"=SUM(O{s_r}:O{end_data})")
-    ws.cell(total_r, 17, f"=SUM(Q{s_r}:Q{end_data})")
-    save_path = os.path.join(tmp_path, f"{fba_id}.xlsx")
-    wb.save(save_path)
-    wb.close()
-    file_list.append(save_path)
-            # 打包zip
+                # 自动解除B39合并单元格，解决AttributeError
+                unmerge_target = None
+                for merged_range in ws.merged_cells.ranges:
+                    cr = CellRange(merged_range)
+                    if cr.min_row <= 39 <= cr.max_row and cr.min_col <= 2 <= cr.max_col:
+                        unmerge_target = merged_range
+                        break
+                if unmerge_target:
+                    ws.unmerge_cells(range_string=str(unmerge_target))
+
+                # 填充发货人信息
+                ws[CLEAR_MAP["ship_name"]].value = acc_info["shipper_name"]
+                ws[CLEAR_MAP["ship_addr"]].value = acc_info["shipper_addr"]
+                ws[CLEAR_MAP["ship_contact"]].value = f"Contact:{acc_info['contact']}"
+                ws[CLEAR_MAP["ship_tel"]].value = f"Phone:{acc_info['phone']}"
+                # 填充进口商信息
+                ws[CLEAR_MAP["imp_name"]].value = acc_info["shipper_name"]
+                ws[CLEAR_MAP["imp_addr"]].value = acc_info["shipper_addr"]
+                ws[CLEAR_MAP["imp_contact"]].value = f"Contact:{acc_info['contact']}"
+                ws[CLEAR_MAP["imp_tel"]].value = f"Phone:{acc_info['phone']}"
+                # 填充制造商信息
+                ws[CLEAR_MAP["manu_name"]].value = acc_info["shipper_name"]
+                ws[CLEAR_MAP["manu_addr"]].value = acc_info["shipper_addr"]
+                # 填充FBA编号
+                ws[CLEAR_MAP["fba_no"]].value = fba_id
+
+                # 清空旧明细区域
+                s_r = CLEAR_MAP["data_start_row"]
+                e_r = CLEAR_MAP["data_end_clear_row"]
+                for r in range(s_r, e_r+1):
+                    for c in range(2, 18):
+                        ws.cell(row=r, column=c, value=None)
+
+                # 写入产品明细
+                rows = group.values.tolist()
+                for idx, row in enumerate(rows):
+                    r = s_r + idx
+                    ws.cell(r, 2, row[0])
+                    ws.cell(r, 3, row[1])
+                    ws.cell(r, 4, row[2])
+                    ws.cell(r, 5, row[3])
+                    ws.cell(r, 8, "CN")
+                    ws.cell(r, 9, row[7])
+                    ws.cell(r, 10, row[8])
+                    ws.cell(r, 11, f"=J{r}*I{r}")
+                    ws.cell(r, 14, row[11])
+                    ws.cell(r, 15, round(row[12],3))
+                    ws.cell(r, 16, row[13])
+                    ws.cell(r, 17, round(row[14],3))
+
+                # 合计行公式
+                end_data = s_r + len(rows) -1
+                total_r = CLEAR_MAP["total_row"]
+                ws.cell(total_r, 11, f"=SUM(K{s_r}:K{end_data})")
+                ws.cell(total_r, 14, f"=SUM(N{s_r}:N{end_data})")
+                ws.cell(total_r, 15, f"=SUM(O{s_r}:O{end_data})")
+                ws.cell(total_r, 17, f"=SUM(Q{s_r}:Q{end_data})")
+
+                save_path = os.path.join(tmp_path, f"{fba_id}.xlsx")
+                wb.save(save_path)
+                wb.close()
+                file_list.append(save_path)
+
+            # 打包ZIP压缩包
             zip_buf = BytesIO()
             zip_name = f"{select_acc}清关资料.zip"
             with zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
                 for fp in file_list:
                     zf.write(fp, os.path.basename(fp))
             zip_buf.seek(0)
+            # 隐藏自动下载按钮
             st.download_button(label="auto", data=zip_buf, file_name=zip_name, mime="application/zip", key="dl_clear_auto", hidden=True)
             st.success(f"{zip_name} 已开始自动下载")
             tmp_dir.cleanup
@@ -319,6 +327,7 @@ if adjust_btn:
                 final_w = w_ints[idx] / 1000
                 final_v = v_ints[idx] / 1000
                 ws.cell(row_num, w_col, value=final_w)
+                ws.cell(row_num, v_col, value=final_v)
             buf = BytesIO()
             wb.save(buf)
             buf.seek(0)
