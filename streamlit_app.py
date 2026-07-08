@@ -164,16 +164,6 @@ if gen_clear:
                 wb = load_workbook(TEMPLATE_FILE)
                 ws = wb.active
 
-                # 自动解除B39合并单元格，解决AttributeError
-                unmerge_target = None
-                for merged_range in ws.merged_cells.ranges:
-                    cr = CellRange(merged_range)
-                    if cr.min_row <= 39 <= cr.max_row and cr.min_col <= 2 <= cr.max_col:
-                        unmerge_target = merged_range
-                        break
-                if unmerge_target:
-                    ws.unmerge_cells(range_string=str(unmerge_target))
-
                 # 填充发货人信息
                 ws[CLEAR_MAP["ship_name"]].value = acc_info["shipper_name"]
                 ws[CLEAR_MAP["ship_addr"]].value = acc_info["shipper_addr"]
