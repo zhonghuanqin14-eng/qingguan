@@ -34,7 +34,7 @@ ACCOUNT_INFO = {
     "47.239": {"shipper_name": "Hong Kong LingLingQinLv Technology Limited","shipper_addr": "UNIT F22,RM 6, 10/F, LEMMI CENTRE, 50 HOI YUEN ROAD,Kwun Tong,Hong Kong","contact": "LUQINGLING","phone": "+8619864368710"}
 }
 
-# 清关模板坐标（修复合并单元格报错，拆分制造商名称/地址）
+# 清关模板坐标（适配新的FBA US Combined Commercial Invoice模板）
 CLEAR_MAP = {
     "fba_no": "J7",
     "ship_name": "B4",
@@ -45,13 +45,13 @@ CLEAR_MAP = {
     "imp_addr": "E4",
     "imp_contact": "E9",
     "imp_tel": "E10",
-    "manu_name": "B39",    # 制造商名称单独单元格
-    "manu_addr": "B40",    # 制造商地址下一行单元格，不再共用B39
+    "manu_name": "B39",
+    "manu_addr": "B39",
     "data_start_row": 22,
     "data_end_clear_row": 35,
     "total_row": 36,
-    "weight_col": 15,  # O列毛重
-    "vol_col": 17      # Q列体积
+    "weight_col": 15,  # 毛重O列
+    "vol_col": 17       # 体积Q列
 }
 }
 # 截单LCL模板坐标
@@ -104,20 +104,20 @@ if gen_clear:
                 wb = load_workbook(TEMPLATE_FILE)
                 ws = wb.active
                 # 填充发货人信息
-                ws[CLEAR_MAP["ship_name"]].value = acc_info["shipper_name"]
-                ws[CLEAR_MAP["ship_addr"]].value = acc_info["shipper_addr"]
-                ws[CLEAR_MAP["ship_contact"]].value = f"Contact:{acc_info['contact']}"
-                ws[CLEAR_MAP["ship_tel"]].value = f"Phone:{acc_info['phone']}"
-                # 填充进口商信息
-                ws[CLEAR_MAP["imp_name"]].value = acc_info["shipper_name"]
-                ws[CLEAR_MAP["imp_addr"]].value = acc_info["shipper_addr"]
-                ws[CLEAR_MAP["imp_contact"]].value = f"Contact:{acc_info['contact']}"
-                ws[CLEAR_MAP["imp_tel"]].value = f"Phone:{acc_info['phone']}"
-                # 填充制造商信息
-                ws[CLEAR_MAP["manu_name"]].value = acc_info["shipper_name"]
-                ws[CLEAR_MAP["manu_addr"]].value = acc_info["shipper_addr"]
-                # 填充FBA编号
-                ws[CLEAR_MAP["fba_no"]].value = fba_id
+ws[CLEAR_MAP["ship_name"]].value = acc_info["shipper_name"]
+ws[CLEAR_MAP["ship_addr"]].value = acc_info["shipper_addr"]
+ws[CLEAR_MAP["ship_contact"]].value = f"Contact:{acc_info['contact']}"
+ws[CLEAR_MAP["ship_tel"]].value = f"Phone:{acc_info['phone']}"
+# 填充进口商信息
+ws[CLEAR_MAP["imp_name"]].value = acc_info["shipper_name"]
+ws[CLEAR_MAP["imp_addr"]].value = acc_info["shipper_addr"]
+ws[CLEAR_MAP["imp_contact"]].value = f"Contact:{acc_info['contact']}"
+ws[CLEAR_MAP["imp_tel"]].value = f"Phone:{acc_info['phone']}"
+# 填充制造商信息（修复合并单元格冲突，分两行写入）
+ws[CLEAR_MAP["manu_name"]].value = acc_info["shipper_name"]
+ws[CLEAR_MAP["manu_addr"]].value = acc_info["shipper_addr"]
+# 填充FBA编号
+ws[CLEAR_MAP["fba_no"]].value = fba_id
                 # 清空旧数据
                 s_r = CLEAR_MAP["data_start_row"]
                 e_r = CLEAR_MAP["data_end_clear_row"]
