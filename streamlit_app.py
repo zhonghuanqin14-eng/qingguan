@@ -38,15 +38,15 @@ ACCOUNT_INFO = {
 CLEAR_MAP = {
     "fba_no": "J8",          # FBA单号 J列第8行
     "ship_name": "B7",       # 发货人名称 B列第7行
-    "ship_addr": "B7",       # 发货人地址 B列第7行
+    "ship_addr": "B8",       # 发货人地址 B列第7行
     "ship_contact": "B9",    # 发货人联系人 B列第9行
     "ship_tel": "B10",      # 发货人电话 B列第10行
     "imp_name": "E7",       # 进口商名称 E列第7行
-    "imp_addr": "E7",       # 进口商地址 E列第7行
+    "imp_addr": "E8",       # 进口商地址 E列第7行
     "imp_contact": "E9",    # 进口商联系人 E列第9行
     "imp_tel": "E10",      # 进口商电话 E列第10行
-    "manu_name": "B38",     # 制造商名称 B列第38行（匹配截图黄色区域）
-    "manu_addr": "B39",     # 制造商地址 B列第39行
+    "manu_name": "C38",     # 制造商名称 B列第38行（匹配截图黄色区域）
+    "manu_addr": "C39",     # 制造商地址 B列第39行
     "data_start": 22,        # 明细数据开始行
     "data_end": 35,          # 明细数据结束行
     "total_row": 36,         # 合计行
