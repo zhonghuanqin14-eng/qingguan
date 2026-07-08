@@ -89,17 +89,26 @@ ACCOUNT_INFO = {
     }
 }
 
-# ===================== 清关模板坐标（数字行列） =====================
+# ===================== 清关模板 全部数字行列坐标，不再使用字母单元格 =====================
 CLEAR_MAP = {
-    "fba_no": "J7",
-    "ship_name": "B4",
-    "ship_addr": "B4",
-    "ship_contact": "B9",
-    "ship_tel": "B10",
-    "imp_name": "E4",
-    "imp_addr": "E4",
-    "imp_contact": "E9",
-    "imp_tel": "E10",
+    "fba_row": 7,
+    "fba_col": 10,
+    "ship_name_row": 4,
+    "ship_name_col": 2,
+    "ship_addr_row": 4,
+    "ship_addr_col": 2,
+    "ship_contact_row": 9,
+    "ship_contact_col": 2,
+    "ship_tel_row": 10,
+    "ship_tel_col": 2,
+    "imp_name_row": 4,
+    "imp_name_col": 5,
+    "imp_addr_row": 4,
+    "imp_addr_col": 5,
+    "imp_contact_row": 9,
+    "imp_contact_col": 5,
+    "imp_tel_row": 10,
+    "imp_tel_col": 5,
     "manu_name_row": 39,
     "manu_name_col": 2,
     "manu_addr_row": 40,
@@ -166,32 +175,37 @@ if gen_clear:
                 wb = load_workbook(TEMPLATE_FILE)
                 ws = wb.active
 
-                # 发货人填充
-                ws[CLEAR_MAP["ship_name"]].value = acc_info["shipper_name"]
-                ws[CLEAR_MAP["ship_addr"]].value = acc_info["shipper_addr"]
-                ws[CLEAR_MAP["ship_contact"]].value = f"Contact:{acc_info['contact']}"
-                ws[CLEAR_MAP["ship_tel"]].value = f"Phone:{acc_info['phone']}"
-                # 进口商填充
-                ws[CLEAR_MAP["imp_name"]].value = acc_info["shipper_name"]
-                ws[CLEAR_MAP["imp_addr"]].value = acc_info["shipper_addr"]
-                ws[CLEAR_MAP["imp_contact"]].value = f"Contact:{acc_info['contact']}"
-                ws[CLEAR_MAP["imp_tel"]].value = f"Phone:{acc_info['phone']}"
+                # 发货人 纯数字行列写入，无字母单元格
+                cell_ship_name = ws.cell(row=CLEAR_MAP["ship_name_row"], column=CLEAR_MAP["ship_name_col"])
+                cell_ship_name.value = acc_info["shipper_name"]
+                cell_ship_addr = ws.cell(row=CLEAR_MAP["ship_addr_row"], column=CLEAR_MAP["ship_addr_col"])
+                cell_ship_addr.value = acc_info["shipper_addr"]
+                cell_ship_contact = ws.cell(row=CLEAR_MAP["ship_contact_row"], column=CLEAR_MAP["ship_contact_col"])
+                cell_ship_contact.value = f"Contact:{acc_info['contact']}"
+                cell_ship_tel = ws.cell(row=CLEAR_MAP["ship_tel_row"], column=CLEAR_MAP["ship_tel_col"])
+                cell_ship_tel.value = f"Phone:{acc_info['phone']}"
 
-                # 拆分单元格对象赋值，彻底解决链式.value AttributeError
-                try:
-                    cell_m_name = ws.cell(row=CLEAR_MAP["manu_name_row"], column=CLEAR_MAP["manu_name_col"])
-                    cell_m_name.value = acc_info["shipper_name"]
-                    cell_m_addr = ws.cell(row=CLEAR_MAP["manu_addr_row"], column=CLEAR_MAP["manu_addr_col"])
-                    cell_m_addr.value = acc_info["shipper_addr"]
-                except Exception:
-                    # 兜底兼容方案
-                    ws["B39"].value = acc_info["shipper_name"]
-                    ws["B40"].value = acc_info["shipper_addr"]
+                # 进口商 纯数字行列写入
+                cell_imp_name = ws.cell(row=CLEAR_MAP["imp_name_row"], column=CLEAR_MAP["imp_name_col"])
+                cell_imp_name.value = acc_info["shipper_name"]
+                cell_imp_addr = ws.cell(row=CLEAR_MAP["imp_addr_row"], column=CLEAR_MAP["imp_addr_col"])
+                cell_imp_addr.value = acc_info["shipper_addr"]
+                cell_imp_contact = ws.cell(row=CLEAR_MAP["imp_contact_row"], column=CLEAR_MAP["imp_contact_col"])
+                cell_imp_contact.value = f"Contact:{acc_info['contact']}"
+                cell_imp_tel = ws.cell(row=CLEAR_MAP["imp_tel_row"], column=CLEAR_MAP["imp_tel_col"])
+                cell_imp_tel.value = f"Phone:{acc_info['phone']}"
 
-                # FBA单号
-                ws[CLEAR_MAP["fba_no"]].value = fba_id
+                # 制造商 纯数字行列强制填充，无兜底字母B39，彻底杜绝报错源
+                cell_m_name = ws.cell(row=CLEAR_MAP["manu_name_row"], column=CLEAR_MAP["manu_name_col"])
+                cell_m_name.value = acc_info["shipper_name"]
+                cell_m_addr = ws.cell(row=CLEAR_MAP["manu_addr_row"], column=CLEAR_MAP["manu_addr_col"])
+                cell_m_addr.value = acc_info["shipper_addr"]
 
-                # 清空旧明细
+                # FBA单号 数字行列
+                cell_fba = ws.cell(row=CLEAR_MAP["fba_row"], column=CLEAR_MAP["fba_col"])
+                cell_fba.value = fba_id
+
+                # 清空旧明细区域
                 s_r = CLEAR_MAP["data_start_row"]
                 e_r = CLEAR_MAP["data_end_clear_row"]
                 for r in range(s_r, e_r+1):
@@ -215,7 +229,7 @@ if gen_clear:
                     ws.cell(r, 16, row[13])
                     ws.cell(r, 17, round(row[14],3))
 
-                # 合计公式
+                # 合计行公式
                 end_data = s_r + len(rows) - 1
                 total_r = CLEAR_MAP["total_row"]
                 ws.cell(total_r, 11, f"=SUM(K{s_r}:K{end_data})")
