@@ -34,7 +34,7 @@ ACCOUNT_INFO = {
     "47.239": {"shipper_name": "Hong Kong LingLingQinLv Technology Limited","shipper_addr": "UNIT F22,RM 6, 10/F, LEMMI CENTRE, 50 HOI YUEN ROAD,Kwun Tong,Hong Kong","contact": "LUQINGLING","phone": "+8619864368710"}
 }
 
-# 清关模板坐标（适配新的FBA US Combined Commercial Invoice模板）
+# 清关模板坐标（修复合并单元格报错，拆分制造商名称/地址）
 CLEAR_MAP = {
     "fba_no": "J7",
     "ship_name": "B4",
@@ -45,13 +45,14 @@ CLEAR_MAP = {
     "imp_addr": "E4",
     "imp_contact": "E9",
     "imp_tel": "E10",
-    "manu_name": "B39",
-    "manu_addr": "B39",
+    "manu_name": "B39",    # 制造商名称单独单元格
+    "manu_addr": "B40",    # 制造商地址下一行单元格，不再共用B39
     "data_start_row": 22,
     "data_end_clear_row": 35,
     "total_row": 36,
-    "weight_col": 15,  # 毛重O列
-    "vol_col": 17       # 体积Q列
+    "weight_col": 15,  # O列毛重
+    "vol_col": 17      # Q列体积
+}
 }
 # 截单LCL模板坐标
 CUT_MAP = {
