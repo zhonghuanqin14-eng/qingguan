@@ -89,35 +89,42 @@ ACCOUNT_INFO = {
     }
 }
 
-# ===================== 清关模板 纯数字行列 =====================
+# ===================== 清关模板坐标（完全匹配截图） =====================
 CLEAR_MAP = {
     "fba_row": 7,
-    "fba_col": 10,
+    "fba_col": 10,          # J列 FBA单号
     "ship_name_row": 4,
-    "ship_name_col": 2,
+    "ship_name_col": 2,     # B列 发货人名称
     "ship_addr_row": 4,
-    "ship_addr_col": 2,
+    "ship_addr_col": 2,     # B列 发货人地址
     "ship_contact_row": 9,
-    "ship_contact_col": 2,
+    "ship_contact_col": 2,  # B列 发货人联系人
     "ship_tel_row": 10,
-    "ship_tel_col": 2,
+    "ship_tel_col": 2,      # B列 发货人电话
     "imp_name_row": 4,
-    "imp_name_col": 5,
+    "imp_name_col": 5,      # E列 进口商名称
     "imp_addr_row": 4,
-    "imp_addr_col": 5,
+    "imp_addr_col": 5,      # E列 进口商地址
     "imp_contact_row": 9,
-    "imp_contact_col": 5,
+    "imp_contact_col": 5,   # E列 进口商联系人
     "imp_tel_row": 10,
-    "imp_tel_col": 5,
-    "manu_name_row": 39,
-    "manu_name_col": 2,
-    "manu_addr_row": 40,
-    "manu_addr_col": 2,
-    "data_start_row": 22,
-    "data_end_clear_row": 35,
-    "total_row": 36,
-    "weight_col": 15,
-    "vol_col": 17
+    "imp_tel_col": 5,       # E列 进口商电话
+    "manu_name_row": 38,
+    "manu_name_col": 2,     # B列 制造商名称（截图B38开始）
+    "manu_addr_row": 39,
+    "manu_addr_col": 2,     # B列 制造商地址
+    "manu_addr2_row": 40,
+    "manu_addr2_col": 2,    # B列 制造商地址第二行
+    "data_start_row": 22,   # 明细开始行
+    "data_end_clear_row": 25, # 明细结束行（截图里22-25行有数据）
+    "total_row": 36,        # 合计行
+    "qty_col": 9,           # I列 数量
+    "unit_price_col": 10,   # J列 单价
+    "total_price_col": 11,  # K列 总价
+    "ctns_col": 13,         # M列 箱数（核心修正：之前错写14，现在改13）
+    "gw_col": 14,           # N列 毛重
+    "nw_col": 15,           # O列 净重
+    "vol_col": 16           # P列 体积
 }
 
 # ===================== LCL截单模板坐标 =====================
@@ -219,21 +226,25 @@ if gen_clear:
                 except:
                     pass
 
-                # 制造商强制填充，双层兜底
+                # 制造商强制填充（匹配截图B38-B40区域，双层兜底）
                 try:
+                    # 先解除制造商区域合并单元格，避免赋值失败
+                    for merged_range in ws.merged_cells.ranges:
+                        if (merged_range.min_row <= 40 and merged_range.max_row >= 38) and (merged_range.min_col <= 2 and merged_range.max_col >= 2):
+                            ws.unmerge_cells(range_string=str(merged_range))
+                            break
+                    # 写入制造商名称、地址
                     cell_m_name = ws.cell(row=CLEAR_MAP["manu_name_row"], column=CLEAR_MAP["manu_name_col"])
                     cell_m_name.value = acc_info["shipper_name"]
-                except Exception:
-                    try:
-                        ws["B39"].value = acc_info["shipper_name"]
-                    except:
-                        pass
-                try:
                     cell_m_addr = ws.cell(row=CLEAR_MAP["manu_addr_row"], column=CLEAR_MAP["manu_addr_col"])
                     cell_m_addr.value = acc_info["shipper_addr"]
+                    cell_m_addr2 = ws.cell(row=CLEAR_MAP["manu_addr2_row"], column=CLEAR_MAP["manu_addr2_col"])
+                    cell_m_addr2.value = ""
                 except Exception:
+                    # 兜底方案，直接写入字母坐标
                     try:
-                        ws["B40"].value = acc_info["shipper_addr"]
+                        ws["B38"].value = acc_info["shipper_name"]
+                        ws["B39"].value = acc_info["shipper_addr"]
                     except:
                         pass
 
@@ -251,30 +262,31 @@ if gen_clear:
                     for c in range(2, 18):
                         ws.cell(row=r, column=c, value=None)
 
-                # 写入产品明细
+                # 写入产品明细（核心修正：箱数列号改为13=M列）
                 rows = group.values.tolist()
                 for idx, row in enumerate(rows):
                     r = s_r + idx
-                    ws.cell(r, 2, row[0])
-                    ws.cell(r, 3, row[1])
-                    ws.cell(r, 4, row[2])
-                    ws.cell(r, 5, row[3])
-                    ws.cell(r, 8, "CN")
-                    ws.cell(r, 9, row[7])
-                    ws.cell(r, 10, row[8])
-                    ws.cell(r, 11, f"=J{r}*I{r}")
-                    ws.cell(r, 14, row[11])
-                    ws.cell(r, 15, round(row[12],3))
-                    ws.cell(r, 16, row[13])
-                    ws.cell(r, 17, round(row[14],3))
+                    ws.cell(r, 2, row[0])  # 零件号 B列
+                    ws.cell(r, 3, row[1])  # 品名 C列
+                    ws.cell(r, 4, row[2])  # 材质 D列
+                    ws.cell(r, 5, row[3])  # 关税分类 E列
+                    ws.cell(r, 8, "CN")   # 原产国 H列
+                    ws.cell(r, 9, row[7])  # 数量 I列
+                    ws.cell(r, 10, row[8]) # 单价 J列
+                    ws.cell(r, 11, f"=J{r}*I{r}") # 总价 K列
+                    ws.cell(r, 13, row[11]) # 箱数 M列（修正列号）
+                    ws.cell(r, 14, round(row[12],3)) # 毛重 N列
+                    ws.cell(r, 15, row[13]) # 净重 O列
+                    ws.cell(r, 16, round(row[14],3)) # 体积 P列
 
-                # 合计公式
+                # 合计公式（修正列号，对应M/N/O/P列）
                 end_data = s_r + len(rows) - 1
                 total_r = CLEAR_MAP["total_row"]
-                ws.cell(total_r, 11, f"=SUM(K{s_r}:K{end_data})")
-                ws.cell(total_r, 14, f"=SUM(N{s_r}:N{end_data})")
-                ws.cell(total_r, 15, f"=SUM(O{s_r}:O{end_data})")
-                ws.cell(total_r, 17, f"=SUM(Q{s_r}:Q{end_data})")
+                ws.cell(total_r, 11, f"=SUM(K{s_r}:K{end_data})") # 总价合计
+                ws.cell(total_r, 13, f"=SUM(M{s_r}:M{end_data})") # 箱数合计
+                ws.cell(total_r, 14, f"=SUM(N{s_r}:N{end_data})") # 毛重合计
+                ws.cell(total_r, 15, f"=SUM(O{s_r}:O{end_data})") # 净重合计
+                ws.cell(total_r, 16, f"=SUM(P{s_r}:P{end_data})") # 体积合计
 
                 save_path = os.path.join(tmp_path, f"{fba_id}.xlsx")
                 wb.save(save_path)
@@ -288,7 +300,6 @@ if gen_clear:
                 for fp in file_list:
                     zf.write(fp, os.path.basename(fp))
             zip_buf.seek(0)
-            # 已删除 hidden=True 参数，修复TypeError
             st.download_button(
                 label="点击下载清关压缩包",
                 data=zip_buf,
@@ -392,7 +403,6 @@ if adjust_btn:
             wb.save(buf)
             buf.seek(0)
             wb.close()
-            # 移除hidden参数
             st.download_button(
                 label="下载调整后截单文件",
                 data=buf,
