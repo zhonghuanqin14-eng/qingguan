@@ -34,24 +34,37 @@ ACCOUNT_INFO = {
     "47.239": {"shipper_name": "Hong Kong LingLingQinLv Technology Limited","shipper_addr": "UNIT F22,RM 6, 10/F, LEMMI CENTRE, 50 HOI YUEN ROAD,Kwun Tong,Hong Kong","contact": "LUQINGLING","phone": "+8619864368710"}
 }
 
-# 清关模板坐标
+# 清关模板坐标（适配新的FBA US Combined Commercial Invoice模板）
 CLEAR_MAP = {
-    "fba_no": "J8","ship_name": "B7","ship_addr": "B8","ship_contact": "B9","ship_tel": "B10",
-    "imp_name": "E7","imp_addr": "E8","imp_contact": "E9","imp_tel": "E10",
-    "manu_name": "C38","manu_addr": "C39",
-    "data_start":22,"data_end":35,"total_row":36,"weight_col":14,"vol_col":16
+    "fba_no": "J7",
+    "ship_name": "B4",
+    "ship_addr": "B4",
+    "ship_contact": "B9",
+    "ship_tel": "B10",
+    "imp_name": "E4",
+    "imp_addr": "E4",
+    "imp_contact": "E9",
+    "imp_tel": "E10",
+    "manu_name": "B39",
+    "manu_addr": "B39",
+    "data_start_row": 22,
+    "data_end_clear_row": 35,
+    "total_row": 36,
+    "weight_col": 15,  # 毛重O列
+    "vol_col": 17       # 体积Q列
 }
 # 截单LCL模板坐标
 CUT_MAP = {
     "header_row":3,"data_start":4,"data_end":7,"weight_col":3,"vol_col":4,
     "weight_head":"Gross weight","vol_head":"Volume"
 }
-TEMPLATE_FILE = "AL0-SBU6B5D6EZU6S.xlsx"
+# 新模板文件名（替换成你上传的新模板名称）
+TEMPLATE_FILE = "FBA US Combined Commercial Invoice Packing List.xlsx"
 
 # ===================== 页面标题 =====================
 st.markdown('<div class="main-title">📦 单证批量处理工具</div>', unsafe_allow_html=True)
 
-# ===================== 模块1：FBA清关单生成（下拉下方展示公司信息） =====================
+# ===================== 模块1：FBA清关单生成（适配新模板） =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.subheader("1. FBA清关单批量生成")
 col1, col2 = st.columns([0.48, 0.48], gap="medium")
@@ -71,12 +84,12 @@ with col2:
 gen_clear = st.button("生成并下载清关资料", key="gen_clear", type="primary")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# 清关生成逻辑（一键生成自动下载）
+# 清关生成逻辑（适配新模板）
 if gen_clear:
     if not file_clear:
         st.error("请上传数据源文件")
     elif not os.path.exists(TEMPLATE_FILE):
-        st.error("模板文件缺失")
+        st.error(f"模板文件{TEMPLATE_FILE}缺失，请确认已上传到仓库根目录")
     else:
         with st.spinner("正在生成..."):
             df = pd.read_excel(file_clear)
@@ -94,43 +107,46 @@ if gen_clear:
                 ws[CLEAR_MAP["ship_addr"]].value = acc_info["shipper_addr"]
                 ws[CLEAR_MAP["ship_contact"]].value = f"Contact:{acc_info['contact']}"
                 ws[CLEAR_MAP["ship_tel"]].value = f"Phone:{acc_info['phone']}"
+                # 填充进口商信息
                 ws[CLEAR_MAP["imp_name"]].value = acc_info["shipper_name"]
                 ws[CLEAR_MAP["imp_addr"]].value = acc_info["shipper_addr"]
                 ws[CLEAR_MAP["imp_contact"]].value = f"Contact:{acc_info['contact']}"
                 ws[CLEAR_MAP["imp_tel"]].value = f"Phone:{acc_info['phone']}"
+                # 填充制造商信息
                 ws[CLEAR_MAP["manu_name"]].value = acc_info["shipper_name"]
                 ws[CLEAR_MAP["manu_addr"]].value = acc_info["shipper_addr"]
+                # 填充FBA编号
                 ws[CLEAR_MAP["fba_no"]].value = fba_id
                 # 清空旧数据
-                s_r = CLEAR_MAP["data_start"]
-                e_r = CLEAR_MAP["data_end"]
+                s_r = CLEAR_MAP["data_start_row"]
+                e_r = CLEAR_MAP["data_end_clear_row"]
                 for r in range(s_r, e_r+1):
-                    for c in range(2,17):
+                    for c in range(2, 18):  # 覆盖到Q列
                         ws.cell(row=r, column=c, value=None)
-                # 写入新明细
+                # 写入新明细（适配新模板列顺序）
                 rows = group.values.tolist()
                 for idx, row in enumerate(rows):
                     r = s_r + idx
-                    ws.cell(r,2,row[0])
-                    ws.cell(r,3,row[1])
-                    ws.cell(r,4,row[2])
-                    ws.cell(r,5,row[3])
-                    ws.cell(r,8,"CN")
-                    ws.cell(r,9,row[7])
-                    ws.cell(r,10,row[8])
-                    ws.cell(r,11,f"=J{r}*I{r}")
-                    ws.cell(r,13,row[11])
-                    ws.cell(r,14,round(row[12],3))
-                    ws.cell(r,15,row[13])
-                    ws.cell(r,16,round(row[14],3))
-                # 合计公式
+                    ws.cell(r, 2, row[0])  # Part # B列
+                    ws.cell(r, 3, row[1])  # Description C列
+                    ws.cell(r, 4, row[2])  # Material D列
+                    ws.cell(r, 5, row[3])  # HTS Code E列
+                    ws.cell(r, 8, "CN")   # 原产国 H列
+                    ws.cell(r, 9, row[7])  # 数量 I列
+                    ws.cell(r, 10, row[8]) # 单价 J列
+                    ws.cell(r, 11, f"=J{r}*I{r}") # 总价 K列
+                    ws.cell(r, 14, row[11]) # 箱数 N列
+                    ws.cell(r, 15, round(row[12],3)) # 毛重 O列
+                    ws.cell(r, 16, row[13]) # 净重 P列
+                    ws.cell(r, 17, round(row[14],3)) # 体积 Q列
+                # 合计公式（适配新模板合计行）
                 end_data = s_r + len(rows) -1
                 total_r = CLEAR_MAP["total_row"]
-                ws.cell(total_r,11,f"=SUM(K{s_r}:K{end_data})")
-                ws.cell(total_r,13,f"=SUM(M{s_r}:M{end_data})")
-                ws.cell(total_r,14,f"=SUM(N{s_r}:N{end_data})")
-                ws.cell(total_r,15,f"=SUM(O{s_r}:O{end_data})")
-                ws.cell(total_r,16,f"=SUM(P{s_r}:P{end_data})")
+                ws.cell(total_r, 11, f"=SUM(K{s_r}:K{end_data})") # 总价合计
+                ws.cell(total_r, 13, f"=SUM(M{s_r}:M{end_data})") # 箱数合计
+                ws.cell(total_r, 14, f"=SUM(N{s_r}:N{end_data})") # 毛重合计
+                ws.cell(total_r, 15, f"=SUM(O{s_r}:O{end_data})") # 净重合计
+                ws.cell(total_r, 16, f"=SUM(P{s_r}:P{end_data})") # 体积合计
                 save_path = os.path.join(tmp_path, f"{fba_id}.xlsx")
                 wb.save(save_path)
                 wb.close()
