@@ -219,7 +219,7 @@ if gen_clear:
                 except:
                     pass
 
-                # 制造商强制填充，双层兜底，保证不会空白
+                # 制造商强制填充，双层兜底
                 try:
                     cell_m_name = ws.cell(row=CLEAR_MAP["manu_name_row"], column=CLEAR_MAP["manu_name_col"])
                     cell_m_name.value = acc_info["shipper_name"]
@@ -288,8 +288,15 @@ if gen_clear:
                 for fp in file_list:
                     zf.write(fp, os.path.basename(fp))
             zip_buf.seek(0)
-            st.download_button(label="auto_download", data=zip_buf, file_name=zip_name, mime="application/zip", key="dl_clear_auto", hidden=True)
-            st.success(f"{zip_name} 已自动开始下载！")
+            # 已删除 hidden=True 参数，修复TypeError
+            st.download_button(
+                label="点击下载清关压缩包",
+                data=zip_buf,
+                file_name=zip_name,
+                mime="application/zip",
+                key="dl_clear_auto"
+            )
+            st.success(f"{zip_name} 已生成，请点击上方按钮下载！")
             tmp_dir.cleanup()
 
 # 分割线
@@ -304,7 +311,7 @@ with colw:
     target_w = st.number_input("目标总重量 kg", min_value=0.001, step=0.001, format="%.3f", key="tw")
 with colv:
     target_v = st.number_input("目标总体积 CBM", min_value=0.001, step=0.001, format="%.3f", key="tv")
-adjust_btn = st.button("调整并下载截单文件", key="adj_btn", type="primary")
+adjust_btn = st.button("调整并生成截单文件", key="adj_btn", type="primary")
 st.markdown('</div>', unsafe_allow_html=True)
 
 # 截单处理逻辑
@@ -385,8 +392,15 @@ if adjust_btn:
             wb.save(buf)
             buf.seek(0)
             wb.close()
-            st.download_button(label="auto_cut", data=buf, file_name=out_name, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_cut_auto", hidden=True)
-            st.success(f"{out_name} 已自动下载完成！")
+            # 移除hidden参数
+            st.download_button(
+                label="下载调整后截单文件",
+                data=buf,
+                file_name=out_name,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="dl_cut_auto"
+            )
+            st.success(f"{out_name} 已生成，请点击按钮下载！")
 
 # 底部说明文字
 st.markdown("<p style='color:#666; font-size:13px; margin-top:30px;'>上方模块生成FBA清关打包文件，选择账号可预览公司信息；下方调整LCL截单重量体积，数值保留三位小数</p>", unsafe_allow_html=True)
