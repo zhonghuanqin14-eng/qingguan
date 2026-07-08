@@ -101,8 +101,12 @@ CLEAR_MAP = {
     "imp_addr": "E4",
     "imp_contact": "E9",
     "imp_tel": "E10",
-    "manu_name": "B39",
-    "manu_addr": "B40",
+    # 制造商改用数字行列：第39行，第2列(B列)
+    "manu_name_row": 39,
+    "manu_name_col": 2,
+    # 制造商地址 第40行，第2列
+    "manu_addr_row": 40,
+    "manu_addr_col": 2,
     "data_start_row": 22,
     "data_end_clear_row": 35,
     "total_row": 36,
@@ -175,8 +179,16 @@ if gen_clear:
                 ws[CLEAR_MAP["imp_contact"]].value = f"Contact:{acc_info['contact']}"
                 ws[CLEAR_MAP["imp_tel"]].value = f"Phone:{acc_info['phone']}"
                 # 填充制造商信息
-                ws[CLEAR_MAP["manu_name"]].value = acc_info["shipper_name"]
-                ws[CLEAR_MAP["manu_addr"]].value = acc_info["shipper_addr"]
+                # 制造商名称 B39
+                ws.cell(
+                row=CLEAR_MAP["manu_name_row"],
+                column=CLEAR_MAP["manu_name_col"]
+                ).value = acc_info["shipper_name"]
+                # 制造商地址 B40
+              ws.cell(
+              row=CLEAR_MAP["manu_addr_row"],
+              column=CLEAR_MAP["manu_addr_col"]
+               ).value = acc_info["shipper_addr"]
                 # 填充FBA编号
                 ws[CLEAR_MAP["fba_no"]].value = fba_id
 
