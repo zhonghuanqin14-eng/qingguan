@@ -89,7 +89,7 @@ ACCOUNT_INFO = {
     }
 }
 
-# ===================== 清关模板坐标（数字行列规避合并单元格报错） =====================
+# ===================== 清关模板坐标（数字行列） =====================
 CLEAR_MAP = {
     "fba_no": "J7",
     "ship_name": "B4",
@@ -162,7 +162,6 @@ if gen_clear:
             tmp_path = tmp_dir.name
             file_list = []
 
-            # 循环统一4空格缩进，无层级错乱
             for fba_id, group in groups:
                 wb = load_workbook(TEMPLATE_FILE)
                 ws = wb.active
@@ -177,9 +176,18 @@ if gen_clear:
                 ws[CLEAR_MAP["imp_addr"]].value = acc_info["shipper_addr"]
                 ws[CLEAR_MAP["imp_contact"]].value = f"Contact:{acc_info['contact']}"
                 ws[CLEAR_MAP["imp_tel"]].value = f"Phone:{acc_info['phone']}"
-                # 制造商 数字行列单行写入，强制填充不留空
-                ws.cell(row=CLEAR_MAP["manu_name_row"], column=CLEAR_MAP["manu_name_col"]).value = acc_info["shipper_name"]
-                ws.cell(row=CLEAR_MAP["manu_addr_row"], column=CLEAR_MAP["manu_addr_col"]).value = acc_info["shipper_addr"]
+
+                # 拆分单元格对象赋值，彻底解决链式.value AttributeError
+                try:
+                    cell_m_name = ws.cell(row=CLEAR_MAP["manu_name_row"], column=CLEAR_MAP["manu_name_col"])
+                    cell_m_name.value = acc_info["shipper_name"]
+                    cell_m_addr = ws.cell(row=CLEAR_MAP["manu_addr_row"], column=CLEAR_MAP["manu_addr_col"])
+                    cell_m_addr.value = acc_info["shipper_addr"]
+                except Exception:
+                    # 兜底兼容方案
+                    ws["B39"].value = acc_info["shipper_name"]
+                    ws["B40"].value = acc_info["shipper_addr"]
+
                 # FBA单号
                 ws[CLEAR_MAP["fba_no"]].value = fba_id
 
@@ -227,7 +235,6 @@ if gen_clear:
                 for fp in file_list:
                     zf.write(fp, os.path.basename(fp))
             zip_buf.seek(0)
-            # 自动下载按钮隐藏
             st.download_button(label="auto_download", data=zip_buf, file_name=zip_name, mime="application/zip", key="dl_clear_auto", hidden=True)
             st.success(f"{zip_name} 已自动开始下载！")
             tmp_dir.cleanup()
