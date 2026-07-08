@@ -46,7 +46,7 @@ CUT_MAP = {
     "header_row":3,"data_start":4,"data_end":7,"weight_col":3,"vol_col":4,
     "weight_head":"Gross weight","vol_head":"Volume"
 }
-TEMPLATE_FILE = "FBA US Combined Commercial Invoice Packing List.xlsx"
+TEMPLATE_FILE = "AL0-SBU6B5D6EZU6S.xlsx"
 
 # ===================== 页面标题 =====================
 st.markdown('<div class="main-title">📦 单证批量处理工具</div>', unsafe_allow_html=True)
