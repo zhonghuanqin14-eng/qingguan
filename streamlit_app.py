@@ -34,39 +34,19 @@ ACCOUNT_INFO = {
     "47.239": {"shipper_name": "Hong Kong LingLingQinLv Technology Limited","shipper_addr": "UNIT F22,RM 6, 10/F, LEMMI CENTRE, 50 HOI YUEN ROAD,Kwun Tong,Hong Kong","contact": "LUQINGLING","phone": "+8619864368710"}
 }
 
-# ===================== 清关模板坐标（完全匹配新FBA模板） =====================
+# 清关模板坐标
 CLEAR_MAP = {
-    "fba_no": "J8",          # FBA单号 J列第8行
-    "ship_name": "B7",       # 发货人名称 B列第7行
-    "ship_addr": "B8",       # 发货人地址 B列第7行
-    "ship_contact": "B9",    # 发货人联系人 B列第9行
-    "ship_tel": "B10",      # 发货人电话 B列第10行
-    "imp_name": "E7",       # 进口商名称 E列第7行
-    "imp_addr": "E8",       # 进口商地址 E列第7行
-    "imp_contact": "E9",    # 进口商联系人 E列第9行
-    "imp_tel": "E10",      # 进口商电话 E列第10行
-    "manu_name": "C38",     # 制造商名称 B列第38行（匹配截图黄色区域）
-    "manu_addr": "C39",     # 制造商地址 B列第39行
-    "data_start": 22,        # 明细数据开始行
-    "data_end": 35,          # 明细数据结束行
-    "total_row": 36,         # 合计行
-    "qty_col": 9,           # 数量 I列（第9列）
-    "unit_price_col": 10,   # 单价 J列（第10列）
-    "total_price_col": 11,  # 总价 K列（第11列）
-    "ctns_col": 13,         # 箱数 M列（第13列，匹配截图）
-    "weight_col": 14,       # 毛重 N列（第14列）
-    "nw_col": 15,           # 净重 O列（第15列）
-    "vol_col": 16           # 体积 P列（第16列）
+    "fba_no": "J8","ship_name": "B7","ship_addr": "B8","ship_contact": "B9","ship_tel": "B10",
+    "imp_name": "E7","imp_addr": "E8","imp_contact": "E9","imp_tel": "E10",
+    "manu_name": "C38","manu_addr": "C39",
+    "data_start":22,"data_end":35,"total_row":36,"weight_col":14,"vol_col":16
 }
-
 # 截单LCL模板坐标
 CUT_MAP = {
     "header_row":3,"data_start":4,"data_end":7,"weight_col":3,"vol_col":4,
     "weight_head":"Gross weight","vol_head":"Volume"
 }
-
-# 新FBA模板文件名（和上传的一致）
-TEMPLATE_FILE = "FBA US Combined Commercial Invoice Packing List.xlsx"
+TEMPLATE_FILE = "AL0-SBU6B5D6EZU6S.xlsx"
 
 # ===================== 页面标题 =====================
 st.markdown('<div class="main-title">📦 单证批量处理工具</div>', unsafe_allow_html=True)
@@ -91,12 +71,12 @@ with col2:
 gen_clear = st.button("生成并下载清关资料", key="gen_clear", type="primary")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# 清关生成逻辑（适配新模板，自动处理合并单元格）
+# 清关生成逻辑（一键生成自动下载）
 if gen_clear:
     if not file_clear:
         st.error("请上传数据源文件")
     elif not os.path.exists(TEMPLATE_FILE):
-        st.error(f"模板文件{TEMPLATE_FILE}缺失，请上传至仓库根目录")
+        st.error("模板文件缺失")
     else:
         with st.spinner("正在生成..."):
             df = pd.read_excel(file_clear)
@@ -109,106 +89,63 @@ if gen_clear:
             for fba_id, group in groups:
                 wb = load_workbook(TEMPLATE_FILE)
                 ws = wb.active
-
-                # 自动解除制造商区域合并单元格，避免赋值失败
-                try:
-                    for merged_range in ws.merged_cells.ranges:
-                        if (merged_range.min_row <= 39 and merged_range.max_row >= 38) and (merged_range.min_col <= 2 and merged_range.max_col >= 2):
-                            ws.unmerge_cells(range_string=str(merged_range))
-                            break
-                except:
-                    pass
-
                 # 填充发货人信息
-                try:
-                    ws[CLEAR_MAP["ship_name"]].value = acc_info["shipper_name"]
-                    ws[CLEAR_MAP["ship_addr"]].value = acc_info["shipper_addr"]
-                    ws[CLEAR_MAP["ship_contact"]].value = f"Contact:{acc_info['contact']}"
-                    ws[CLEAR_MAP["ship_tel"]].value = f"Phone:{acc_info['phone']}"
-                except:
-                    pass
-
-                # 填充进口商信息
-                try:
-                    ws[CLEAR_MAP["imp_name"]].value = acc_info["shipper_name"]
-                    ws[CLEAR_MAP["imp_addr"]].value = acc_info["shipper_addr"]
-                    ws[CLEAR_MAP["imp_contact"]].value = f"Contact:{acc_info['contact']}"
-                    ws[CLEAR_MAP["imp_tel"]].value = f"Phone:{acc_info['phone']}"
-                except:
-                    pass
-
-                # 填充制造商信息（强制填充，双层兜底）
-                try:
-                    ws[CLEAR_MAP["manu_name"]].value = acc_info["shipper_name"]
-                    ws[CLEAR_MAP["manu_addr"]].value = acc_info["shipper_addr"]
-                except Exception:
-                    try:
-                        ws["B38"].value = acc_info["shipper_name"]
-                        ws["B39"].value = acc_info["shipper_addr"]
-                    except:
-                        pass
-
-                # 填充FBA编号
-                try:
-                    ws[CLEAR_MAP["fba_no"]].value = fba_id
-                except:
-                    pass
-
-                # 清空旧明细区域
+                ws[CLEAR_MAP["ship_name"]].value = acc_info["shipper_name"]
+                ws[CLEAR_MAP["ship_addr"]].value = acc_info["shipper_addr"]
+                ws[CLEAR_MAP["ship_contact"]].value = f"Contact:{acc_info['contact']}"
+                ws[CLEAR_MAP["ship_tel"]].value = f"Phone:{acc_info['phone']}"
+                ws[CLEAR_MAP["imp_name"]].value = acc_info["shipper_name"]
+                ws[CLEAR_MAP["imp_addr"]].value = acc_info["shipper_addr"]
+                ws[CLEAR_MAP["imp_contact"]].value = f"Contact:{acc_info['contact']}"
+                ws[CLEAR_MAP["imp_tel"]].value = f"Phone:{acc_info['phone']}"
+                ws[CLEAR_MAP["manu_name"]].value = acc_info["shipper_name"]
+                ws[CLEAR_MAP["manu_addr"]].value = acc_info["shipper_addr"]
+                ws[CLEAR_MAP["fba_no"]].value = fba_id
+                # 清空旧数据
                 s_r = CLEAR_MAP["data_start"]
                 e_r = CLEAR_MAP["data_end"]
                 for r in range(s_r, e_r+1):
-                    for c in range(2, 17):
+                    for c in range(2,17):
                         ws.cell(row=r, column=c, value=None)
-
-                # 写入新明细（匹配模板列顺序）
+                # 写入新明细
                 rows = group.values.tolist()
                 for idx, row in enumerate(rows):
                     r = s_r + idx
-                    ws.cell(r, 2, row[0])  # 零件号 B列
-                    ws.cell(r, 3, row[1])  # 品名 C列
-                    ws.cell(r, 4, row[2])  # 材质 D列
-                    ws.cell(r, 5, row[3])  # 关税分类 E列
-                    ws.cell(r, 8, "CN")   # 原产国 H列
-                    ws.cell(r, 9, row[7])  # 数量 I列
-                    ws.cell(r, 10, row[8]) # 单价 J列
-                    ws.cell(r, 11, f"=J{r}*I{r}") # 总价 K列
-                    ws.cell(r, 13, row[11]) # 箱数 M列（修正列号）
-                    ws.cell(r, 14, round(row[12], 3)) # 毛重 N列
-                    ws.cell(r, 15, row[13]) # 净重 O列
-                    ws.cell(r, 16, round(row[14], 3)) # 体积 P列
-
-                # 合计公式（匹配修正后的列号）
-                end_data = s_r + len(rows) - 1
+                    ws.cell(r,2,row[0])
+                    ws.cell(r,3,row[1])
+                    ws.cell(r,4,row[2])
+                    ws.cell(r,5,row[3])
+                    ws.cell(r,8,"CN")
+                    ws.cell(r,9,row[7])
+                    ws.cell(r,10,row[8])
+                    ws.cell(r,11,f"=J{r}*I{r}")
+                    ws.cell(r,13,row[11])
+                    ws.cell(r,14,round(row[12],3))
+                    ws.cell(r,15,row[13])
+                    ws.cell(r,16,round(row[14],3))
+                # 合计公式
+                end_data = s_r + len(rows) -1
                 total_r = CLEAR_MAP["total_row"]
-                ws.cell(total_r, 11, f"=SUM(K{s_r}:K{end_data})") # 总价合计
-                ws.cell(total_r, 13, f"=SUM(M{s_r}:M{end_data})") # 箱数合计
-                ws.cell(total_r, 14, f"=SUM(N{s_r}:N{end_data})") # 毛重合计
-                ws.cell(total_r, 15, f"=SUM(O{s_r}:O{end_data})") # 净重合计
-                ws.cell(total_r, 16, f"=SUM(P{s_r}:P{end_data})") # 体积合计
-
+                ws.cell(total_r,11,f"=SUM(K{s_r}:K{end_data})")
+                ws.cell(total_r,13,f"=SUM(M{s_r}:M{end_data})")
+                ws.cell(total_r,14,f"=SUM(N{s_r}:N{end_data})")
+                ws.cell(total_r,15,f"=SUM(O{s_r}:O{end_data})")
+                ws.cell(total_r,16,f"=SUM(P{s_r}:P{end_data})")
                 save_path = os.path.join(tmp_path, f"{fba_id}.xlsx")
                 wb.save(save_path)
                 wb.close()
                 file_list.append(save_path)
-
-            # 打包zip压缩包
+            # 打包zip
             zip_buf = BytesIO()
             zip_name = f"{select_acc}清关资料.zip"
             with zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
                 for fp in file_list:
                     zf.write(fp, os.path.basename(fp))
             zip_buf.seek(0)
-            # 下载按钮（移除hidden参数，适配新版Streamlit）
-            st.download_button(
-                label="点击下载清关压缩包",
-                data=zip_buf,
-                file_name=zip_name,
-                mime="application/zip",
-                key="dl_clear_auto"
-            )
-            st.success(f"{zip_name} 已生成，请点击上方按钮下载！")
-            tmp_dir.cleanup()
+            # 隐藏下载按钮，自动弹出下载
+            st.download_button(label="auto", data=zip_buf, file_name=zip_name, mime="application/zip", key="dl_clear_auto", hidden=True)
+            st.success(f"{zip_name} 已开始自动下载")
+            tmp_dir.cleanup
 
 # 分割线
 st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
@@ -225,7 +162,7 @@ with colv:
 adjust_btn = st.button("调整并下载截单资料", key="adj_btn", type="primary")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# 截单调整逻辑
+# 截单调整逻辑（一键生成直接下载）
 if adjust_btn:
     if not upload_cut:
         st.error("请上传截单Excel文件")
@@ -307,15 +244,9 @@ if adjust_btn:
             wb.save(buf)
             buf.seek(0)
             wb.close()
-            # 下载按钮
-            st.download_button(
-                label="点击下载调整后截单文件",
-                data=buf,
-                file_name=out_name,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="dl_cut_auto"
-            )
-            st.success(f"{out_name} 已生成，请点击按钮下载！")
+            # 自动下载
+            st.download_button(label="auto", data=buf, file_name=out_name, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_cut_auto", hidden=True)
+            st.success(f"{out_name} 已开始自动下载")
 
 # 底部极简说明
 st.markdown("<p style='color:#666; font-size:13px; margin-top:30px;'>上方：生成FBA清关打包文件，选择账号后可预览公司信息 | 下方：调整LCL截单重量体积，数值保留3位小数</p>", unsafe_allow_html=True)
