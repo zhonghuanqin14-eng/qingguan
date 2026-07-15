@@ -213,26 +213,26 @@ if gen_clear:
 # 分割线
 st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
-# ===================== 模块2：截单重量体积调整 =====================
+# ===================== 模块2：LCL截单重量体积比例调整（修复版） =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
-st.subheader("2. 截单重量体积比例调整")
+st.subheader("2. LCL截单重量体积调整")
 upload_cut = st.file_uploader("上传LCL截单Excel", type=["xlsx","xls"], key="cut_file")
 colw, colv = st.columns([0.48,0.48], gap="medium")
 with colw:
     target_w = st.number_input("目标总重量 kg", min_value=0.001, step=0.001, format="%.3f", key="tw")
 with colv:
-    target_v = st.number_input("目标总体积 cbm", min_value=0.001, step=0.001, format="%.3f", key="tv")
-adjust_btn = st.button("调整并下载截单资料", key="adj_btn", type="primary")
+    target_v = st.number_input("目标总体积 CBM", min_value=0.001, step=0.001, format="%.3f", key="tv")
+adjust_btn = st.button("调整并下载截单文件", key="adj_btn", type="primary")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# 截单调整逻辑
+# 截单调整逻辑（修复版）
 if adjust_btn:
     if not upload_cut:
         st.error("请上传截单Excel文件")
-    elif target_w <=0 or target_v <=0:
+    elif target_w <= 0 or target_v <= 0:
         st.error("重量、体积必须大于0")
     else:
-        with st.spinner("正在计算调整..."):
+        with st.spinner("计算并调整体积重量..."):
             # 提取AL0编号
             fname = upload_cut.name
             name_no_ext = os.path.splitext(fname)[0]
@@ -242,17 +242,45 @@ if adjust_btn:
                     al0_code = part
                     break
             if not al0_code:
-                al0_code = "未知编号"
+                al0_code = "未知单号"
             out_name = f"截单资料{al0_code}.xlsx"
 
             wb = load_workbook(upload_cut)
             ws = wb.active
-            s_r = CUT_MAP["data_start"]
-            e_r = CUT_MAP["data_end"]
-            w_col = CUT_MAP["weight_col"]
-            v_col = CUT_MAP["vol_col"]
+            
+            # 自动识别数据范围（替代硬编码行号）
+            s_r = None
+            e_r = None
+            w_col = None
+            v_col = None
+            # 遍历表头行，自动识别重量/体积列
+            for r in range(1, 10):
+                row_cells = [str(cell.value).strip() if cell.value is not None else "" for cell in ws[r]]
+                for idx, cell_val in enumerate(row_cells):
+                    if "weight" in cell_val.lower() or "gross" in cell_val.lower():
+                        w_col = idx + 1  # 转成1-indexed列号
+                    if "volume" in cell_val.lower() or "cbm" in cell_val.lower():
+                        v_col = idx + 1
+                if w_col and v_col:
+                    s_r = r + 1  # 数据行从表头下一行开始
+                    break
+            # 自动识别数据结束行
+            if s_r:
+                for r in range(s_r, 20):
+                    cell_val = ws.cell(r, w_col).value
+                    if cell_val is None or str(cell_val).strip() == "":
+                        e_r = r - 1
+                        break
+            # 兜底：如果自动识别失败，用硬编码默认值
+            if not s_r or not e_r or not w_col or not v_col:
+                st.warning("自动识别模板失败，使用默认坐标（第4-7行，C列重量，D列体积）")
+                s_r = 4
+                e_r = 7
+                w_col = 3
+                v_col = 4
+
             # 读取原始数据
-            raw = []
+            raw_data = []
             sum_w_ori = 0.0
             sum_v_ori = 0.0
             for r in range(s_r, e_r + 1):
@@ -261,53 +289,89 @@ if adjust_btn:
                 try:
                     wv = float(wc.value)
                     vv = float(vc.value)
-                    raw.append([r, wv, vv])
+                    raw_data.append([r, wv, vv])
                     sum_w_ori += wv
                     sum_v_ori += vv
                 except:
                     continue
-            if sum_w_ori <= 0 or sum_v_ori <=0:
-                st.error("原始重量/体积总和为0，无法调整")
+
+            # 校验原始数据
+            if sum_w_ori <= 0 or sum_v_ori <= 0:
+                st.error("原始单据总重量/体积为0，无法调整")
                 wb.close()
                 st.stop()
-            # 缩放比例
+            st.info(f"已读取原始数据：共{len(raw_data)}行，总重量{sum_w_ori:.3f}kg，总体积{sum_v_ori:.3f}CBM")
+
+            # 计算统一缩放比例（保证单箱重体积比不变，和原始一致）
             ratio_w = target_w / sum_w_ori
             ratio_v = target_v / sum_v_ori
+            # 优先用重量比例，若体积比例偏差过大则取平均值
+            final_ratio = ratio_w if abs(ratio_w - ratio_v) < 0.001 else (ratio_w + ratio_v) / 2
+            st.info(f"缩放比例：{final_ratio:.6f}，目标总重量{target_w:.3f}kg，目标总体积{target_v:.3f}CBM")
+
+            # 计算缩放后数值
             data_list = []
-            for r, ow, ov in raw:
-                ew = ow * ratio_w
-                ev = ov * ratio_v
+            for r, ow, ov in raw_data:
+                ew = ow * final_ratio
+                ev = ov * final_ratio
                 data_list.append([r, ew, ev])
-            # 精准分配消除四舍五入误差
+
+            # 精准分配小数尾差，保证总重量/体积完全等于目标值
+            # 重量尾差分配
             target_w_int = int(round(target_w * 1000))
-            w_ints = []
-            sumwi = 0
+            w_int_list = []
+            sum_wi = 0
             for _, ew, _ in data_list:
                 i = int(round(ew * 1000))
-                w_ints.append(i)
-                sumwi += i
-            w_ints[-1] += target_w_int - sumwi
+                w_int_list.append(i)
+                sum_wi += i
+            # 尾差平均分配到所有行，而非只加在最后一行
+            w_diff = target_w_int - sum_wi
+            if w_diff != 0:
+                step = 1 if w_diff > 0 else -1
+                for i in range(abs(w_diff)):
+                    w_int_list[i % len(w_int_list)] += step
 
+            # 体积尾差分配
             target_v_int = int(round(target_v * 1000))
-            v_ints = []
-            sumvi = 0
+            v_int_list = []
+            sum_vi = 0
             for _, _, ev in data_list:
                 i = int(round(ev * 1000))
-                v_ints.append(i)
-                sumvi += i
-            v_ints[-1] += target_v_int - sumvi
+                v_int_list.append(i)
+                sum_vi += i
+            # 尾差平均分配到所有行
+            v_diff = target_v_int - sum_vi
+            if v_diff != 0:
+                step = 1 if v_diff > 0 else -1
+                for i in range(abs(v_diff)):
+                    v_int_list[i % len(v_int_list)] += step
+
             # 写入单元格
             for idx, (row_num, _, _) in enumerate(data_list):
-                final_w = w_ints[idx] / 1000
-                final_v = v_ints[idx] / 1000
+                final_w = w_int_list[idx] / 1000
+                final_v = v_int_list[idx] / 1000
                 ws.cell(row_num, w_col, value=final_w)
                 ws.cell(row_num, v_col, value=final_v)
-            # 保存内存文件
+
+            # 保存文件
             buf = BytesIO()
             wb.save(buf)
             buf.seek(0)
             wb.close()
-            # 修复下载按钮：移除hidden=True
+
+            # 验证结果
+            wb_check = load_workbook(BytesIO(buf.getvalue()))
+            ws_check = wb_check.active
+            final_sum_w = 0.0
+            final_sum_v = 0.0
+            for r in range(s_r, e_r + 1):
+                final_sum_w += float(ws_check.cell(r, w_col).value or 0)
+                final_sum_v += float(ws_check.cell(r, v_col).value or 0)
+            wb_check.close()
+            st.success(f"调整完成！最终总重量{final_sum_w:.3f}kg，最终总体积{final_sum_v:.3f}CBM")
+
+            # 下载按钮
             st.download_button(
                 label="点击下载调整后截单文件",
                 data=buf,
@@ -315,7 +379,4 @@ if adjust_btn:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="dl_cut_auto"
             )
-            st.success(f"{out_name} 已生成，请点击按钮下载！")
 
-# 底部极简说明
-st.markdown("<p style='color:#666; font-size:13px; margin-top:30px;'>上方：生成FBA清关打包文件，选择账号后可预览公司信息 | 下方：调整LCL截单重量体积，数值保留3位小数</p>", unsafe_allow_html=True)
