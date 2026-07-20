@@ -383,7 +383,7 @@ if adjust_btn:
 # 分割线
 st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
-# ===================== 模块3：按FBA号分单生成（修复无表头问题） =====================
+# ===================== 模块3：按FBA号分单生成（双重兼容：表头名/列序号兜底） =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.subheader("3. 按FBA号分单生成")
 file_split = st.file_uploader("上传数据源Excel", type=["xlsx","xls"], key="split_file")
@@ -398,55 +398,72 @@ if gen_split:
         st.error(f"模板文件{TEMPLATE_FILE}缺失，请上传至仓库根目录")
     else:
         with st.spinner("正在读取文件，校验列名..."):
-            # 关键修复：header=0 指定第1行为表头，跳过空白行
+            # 先不指定表头，读取原始全部内容
+            df_raw = pd.read_excel(file_split, header=None)
+            st.info("原始表格前3行预览（用于判断表头位置）：")
+            st.write(df_raw.head(3))
+
+            # 尝试用第0行（第一行）作为表头读取
             df = pd.read_excel(file_split, header=0)
-            # 打印全部列名到页面，方便核对真实表头
-            st.info("当前表格全部列名：")
-            st.write(list(df.columns))
-            
-            # 兼容多种常见列名
+            st.info("当前以第一行为表头读取，全部列名：")
+            col_list = list(df.columns)
+            st.write(col_list)
+
+            # 1. 优先匹配文字表头
             target_cols = ["跟踪号/FBA", "跟踪号 FBA", "FBA", "FBA编号"]
             group_col = None
             for col in target_cols:
-                if col in df.columns:
+                if col in col_list:
                     group_col = col
                     break
+
+            # 2. 文字表头匹配失败，启用列序号兜底（假设FBA数据在第6列，下标6）
+            group_series = None
             if group_col is None:
-                st.error("未识别到分组列！表格内无【跟踪号/FBA、跟踪号 FBA、FBA、FBA编号】任一表头，请核对上方打印的列名")
-                st.stop()
-            st.success(f"已识别分组列：{group_col}")
-            
-            # 按识别到的列分组，相同跟踪号/FBA生成一份文件
-            groups = df.groupby(group_col)
+                st.warning("未匹配到文字表头，切换为按第6列数据分组兜底")
+                group_series = df.iloc[:, 6]  # 第7列，下标6，可根据实际修改数字
+            else:
+                group_series = df[group_col]
+
+            # 分组逻辑
             tmp_dir = tempfile.TemporaryDirectory()
             tmp_path = tmp_dir.name
             file_list = []
-            # 今日日期 格式 2026-7-20
             today_date = datetime.now().strftime("%Y-%m-%d").replace("-0", "-")
 
+            # 按分组列拆分数据
+            if group_col:
+                groups = df.groupby(group_col)
+            else:
+                df["temp_group"] = group_series
+                groups = df.groupby("temp_group")
+
             for fba_id, group in groups:
+                if pd.isna(fba_id):
+                    continue  # 跳过空FBA行
                 wb = load_workbook(TEMPLATE_FILE)
                 ws = wb.active
 
-                # 1. 产品分类 H列(8) 填 CPSC
+                # 固定填充字段
+                # 产品分类 H8=CPSC
                 for row in range(CLEAR_MAP["data_start"], CLEAR_MAP["data_end"] + 1):
                     ws.cell(row=row, column=8, value="CPSC")
-                # 2. 单位 I列(9) 填 套
+                # 单位 I9=套
                 for row in range(CLEAR_MAP["data_start"], CLEAR_MAP["data_end"] + 1):
                     ws.cell(row=row, column=9, value="套")
-                # 3. PO创建日期 B12
+                # PO日期 B12
                 ws.cell(row=12, column=2, value=today_date)
-                # 4. FBA箱号 M列(13) 填 -
+                # FBA箱号 M13=-
                 for row in range(CLEAR_MAP["data_start"], CLEAR_MAP["data_end"] + 1):
                     ws.cell(row=row, column=13, value="-")
-                # 5. 外箱分货标 N列(14) 填 A1
+                # 分货标 N14=A1
                 for row in range(CLEAR_MAP["data_start"], CLEAR_MAP["data_end"] + 1):
                     ws.cell(row=row, column=14, value="A1")
 
-                # 填充FBA单号到J8
+                # 填充FBA编号
                 ws[CLEAR_MAP["fba_no"]].value = fba_id
 
-                # 清空旧明细
+                # 清空模板旧明细
                 s_r = CLEAR_MAP["data_start"]
                 e_r = CLEAR_MAP["data_end"]
                 for r in range(s_r, e_r+1):
@@ -457,18 +474,18 @@ if gen_split:
                 rows = group.values.tolist()
                 for idx, row in enumerate(rows):
                     r = s_r + idx
-                    ws.cell(r, 2, row[0])    # 零件号 B
-                    ws.cell(r, 3, row[1])    # 品名 C
-                    ws.cell(r, 4, row[2])    # 材质 D
-                    ws.cell(r, 5, row[3])    # 关税分类 E
-                    ws.cell(r, 8, "CN")     # 原产国 H
-                    ws.cell(r, 9, row[7])    # 数量 I
-                    ws.cell(r, 10, row[8])   # 单价 J
-                    ws.cell(r, 11, f"=J{r}*I{r}") # 总价 K
-                    ws.cell(r, 13, row[11])  # 箱数 M
-                    ws.cell(r, 14, round(row[12], 3)) # 毛重 N
-                    ws.cell(r, 15, row[13])  # 净重 O
-                    ws.cell(r, 16, round(row[14], 3)) # 体积 P
+                    ws.cell(r, 2, row[0])
+                    ws.cell(r, 3, row[1])
+                    ws.cell(r, 4, row[2])
+                    ws.cell(r, 5, row[3])
+                    ws.cell(r, 8, "CN")
+                    ws.cell(r, 9, row[7])
+                    ws.cell(r, 10, row[8])
+                    ws.cell(r, 11, f"=J{r}*I{r}")
+                    ws.cell(r, 13, row[11])
+                    ws.cell(r, 14, round(row[12], 3))
+                    ws.cell(r, 15, row[13])
+                    ws.cell(r, 16, round(row[14], 3))
 
                 # 合计公式
                 end_data = s_r + len(rows) - 1
@@ -479,7 +496,6 @@ if gen_split:
                 ws.cell(total_r, 15, f"=SUM(O{s_r}:O{end_data})")
                 ws.cell(total_r, 16, f"=SUM(P{s_r}:P{end_data})")
 
-                # 文件命名为FBA跟踪号
                 save_path = os.path.join(tmp_path, f"{fba_id}.xlsx")
                 wb.save(save_path)
                 wb.close()
@@ -503,4 +519,4 @@ if gen_split:
             tmp_dir.cleanup()
 
 # 底部说明
-st.markdown("<p style='color:#666; font-size:13px; margin-top:30px;'>上方：生成FBA清关打包文件 | 中间：LCL截单重量体积换算 | 下方：按跟踪号/FBA分单生成独立文件，自动填充CPSC、套、今日日期、箱号-、分货标A1</p>", unsafe_allow_html=True)
+st.markdown("<p style='color:#666; font-size:13px; margin-top:30px;'>上方：生成FBA清关打包文件 | 中间：LCL截单重量体积换算 | 下方：支持无表头表格，可按列序号兜底分组，自动填充CPSC、套、今日日期、箱号-、分货标A1</p>", unsafe_allow_html=True)
