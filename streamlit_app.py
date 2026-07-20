@@ -383,9 +383,9 @@ if adjust_btn:
 # 分割线
 st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
-# ===================== 模块3：终极稳定分单生成 =====================
+# ===================== 模块3：FBA分单生成（正确格式最终版） =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
-st.subheader("3. 分单文件批量生成")
+st.subheader("3. FBA分单文件批量生成")
 file_split = st.file_uploader("上传数据源Excel", type=["xlsx","xls"], key="split_file")
 gen_split = st.button("生成分单文件", key="gen_split", type="primary")
 st.markdown('</div>', unsafe_allow_html=True)
@@ -394,31 +394,28 @@ if gen_split:
     if not file_split:
         st.error("请上传数据源Excel文件")
     else:
-        with st.spinner("读取表格并生成分单..."):
-            # 只读模式读取原始表格，不修改内容
+        with st.spinner("读取表格并生成标准分单..."):
+            # 1. 正确解析2行合并表头，读取数据源
             df_raw = pd.read_excel(file_split, header=None)
-            # 取第2行(index=1)、第3行(index=2)拼接为表头，适配两行合并表头
-            row_header_2 = df_raw.iloc[1].fillna("").astype(str).str.strip()
-            row_header_3 = df_raw.iloc[2].fillna("").astype(str).str.strip()
-            combine_cols = []
-            for c2, c3 in zip(row_header_2, row_header_3):
-                if c2 and c3:
-                    combine_cols.append(f"{c2}{c3}")
-                elif c2:
-                    combine_cols.append(c2)
-                elif c3:
-                    combine_cols.append(c3)
-                else:
-                    combine_cols.append(f"col_{len(combine_cols)}")
+            # 第2行(index=1)为主表头，第3行(index=2)为子表头
+            main_header = df_raw.iloc[1].fillna("").astype(str).str.strip()
+            sub_header = df_raw.iloc[2].fillna("").astype(str).str.strip()
+            
+            # 合并生成最终列名，子表头为空则只用主表头
+            final_columns = []
+            for main_h, sub_h in zip(main_header, sub_header):
+                final_col = f"{main_h}{sub_h}".strip() if sub_h else main_h.strip()
+                final_columns.append(final_col if final_col else f"col_{len(final_columns)}")
+            
             # 数据从第4行(index=3)开始读取
             data_df = df_raw.iloc[3:].copy()
-            data_df.columns = combine_cols
+            data_df.columns = final_columns
             data_df.columns = data_df.columns.str.strip()
 
-            # 分组字段：跟踪号/FBA
+            # 2. 按跟踪号/FBA分组
             group_key = "跟踪号/FBA"
             if group_key not in data_df.columns:
-                st.error(f"表格未识别到【{group_key}】列，请检查表头第2、3行")
+                st.error(f"表格未识别到【{group_key}】列，请检查表头")
                 st.stop()
             group_list = data_df.groupby(group_key)
 
@@ -428,6 +425,7 @@ if gen_split:
             # 今日日期，格式匹配模板
             today = datetime.now().strftime("%Y-%m-%d").replace("-0", "-")
 
+            # 3. 遍历每个FBA分组，生成标准文件
             for fba_val, sub_df in group_list:
                 if pd.isna(fba_val) or str(fba_val).strip() == "":
                     continue
@@ -437,7 +435,7 @@ if gen_split:
                 max_r = ws.max_row
                 max_c = ws.max_column
 
-                # 拆分所有合并单元格，彻底消除只读报错
+                # 拆分所有合并单元格，避免只读报错
                 all_merge = list(ws.merged_cells.ranges)
                 for m_range in all_merge:
                     ws.unmerge_cells(str(m_range))
@@ -445,53 +443,51 @@ if gen_split:
                 # 关闭公式自动计算，减小文件体积
                 wb.calculation.calcMode = "manual"
 
-                # 批量填充固定内容
+                # 4. 彻底清空原有数据（解决重复问题）
+                # 清空第4行及以下的所有数据列，不留残留
+                for r in range(4, max_r + 1):
+                    for c in range(2, max_c + 1):
+                        ws.cell(r, c, None)
+
+                # 5. 批量填充固定字段（100%匹配正确模板列号，无错位）
                 start_write_row = 4
-                # 1. H列(8) 产品分类 = CPSC
+                # 产品分类 H列(8) = CPSC
                 for r in range(start_write_row, max_r + 1):
                     ws.cell(r, 8, "CPSC")
-                # 2. I列(9) 产品单位 = 套
+                # 产品数量单位 I列(9) = 套
                 for r in range(start_write_row, max_r + 1):
                     ws.cell(r, 9, "套")
-                # 3. AB列(28) PO创建日期 = 今日
+                # PO创建日期 AB列(28) = 今日日期
                 for r in range(start_write_row, max_r + 1):
                     ws.cell(r, 28, today)
-                # 4. AC列(29) FBA箱号 = -
+                # FBA箱号 AC列(29) = -
                 for r in range(start_write_row, max_r + 1):
                     ws.cell(r, 29, "-")
-                # 5. AD列(30) 外箱分货标 = A1
+                # 外箱分货标 AD列(30) = A1
                 for r in range(start_write_row, max_r + 1):
                     ws.cell(r, 30, "A1")
-                # 6. AA列(27) 跟踪号/FBA = 当前分组值
+                # 跟踪号/FBA AA列(27) = 当前分组FBA号
                 for r in range(start_write_row, max_r + 1):
                     ws.cell(r, 27, fba_val)
 
-                # 清空原有明细区域
-                for r in range(start_write_row, max_r + 1):
-                    for c in range(2, 31):
-                        ws.cell(r, c, None)
-
-                # 写入当前分组明细
+                # 6. 写入当前分组明细（严格按列对应，无乱码）
                 row_data_arr = sub_df.values.tolist()
                 for idx, line in enumerate(row_data_arr):
                     write_r = start_write_row + idx
                     if write_r > max_r:
                         break
+                    # 按列顺序写入，严格对应模板列位置
                     for col_idx, cell_val in enumerate(line):
                         ws.cell(write_r, col_idx + 1, cell_val)
 
-                # 垃圾回收，释放内存
-                import gc
-                gc.collect()
-
-                # 保存单文件
+                # 7. 保存文件，以FBA号命名
                 file_name = f"{fba_val}.xlsx"
                 full_save_path = os.path.join(tmp_root, file_name)
                 wb.save(full_save_path)
                 wb.close()
                 output_files.append(full_save_path)
 
-            # 最高压缩等级打包ZIP，极限减小体积
+            # 8. 最高压缩等级打包ZIP，极限减小体积
             if len(output_files) > 0:
                 zip_buffer = BytesIO()
                 zip_name = "FBA分单文件.zip"
