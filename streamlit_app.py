@@ -383,7 +383,7 @@ if adjust_btn:
 # 分割线
 st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
-# ===================== 模块3：稳定轻量分单生成（兼容2/3行合并表头） =====================
+# ===================== 模块3：终极稳定分单生成 =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.subheader("3. 分单文件批量生成")
 file_split = st.file_uploader("上传数据源Excel", type=["xlsx","xls"], key="split_file")
@@ -397,7 +397,7 @@ if gen_split:
         with st.spinner("读取表格并生成分单..."):
             # 只读模式读取原始表格，不修改内容
             df_raw = pd.read_excel(file_split, header=None)
-            # 取第2行(index=1)、第3行(index=2)拼接为表头
+            # 取第2行(index=1)、第3行(index=2)拼接为表头，适配两行合并表头
             row_header_2 = df_raw.iloc[1].fillna("").astype(str).str.strip()
             row_header_3 = df_raw.iloc[2].fillna("").astype(str).str.strip()
             combine_cols = []
@@ -410,7 +410,7 @@ if gen_split:
                     combine_cols.append(c3)
                 else:
                     combine_cols.append(f"col_{len(combine_cols)}")
-            # 数据从第4行(index=3)开始
+            # 数据从第4行(index=3)开始读取
             data_df = df_raw.iloc[3:].copy()
             data_df.columns = combine_cols
             data_df.columns = data_df.columns.str.strip()
@@ -425,6 +425,7 @@ if gen_split:
             tmp_dir = tempfile.TemporaryDirectory()
             tmp_root = tmp_dir.name
             output_files = []
+            # 今日日期，格式匹配模板
             today = datetime.now().strftime("%Y-%m-%d").replace("-0", "-")
 
             for fba_val, sub_df in group_list:
@@ -436,32 +437,32 @@ if gen_split:
                 max_r = ws.max_row
                 max_c = ws.max_column
 
-                # 新建文件时先拆分所有合并单元格，消除只读报错
+                # 拆分所有合并单元格，彻底消除只读报错
                 all_merge = list(ws.merged_cells.ranges)
                 for m_range in all_merge:
                     ws.unmerge_cells(str(m_range))
 
-                # 关闭自动计算，减小文件体积
+                # 关闭公式自动计算，减小文件体积
                 wb.calculation.calcMode = "manual"
 
                 # 批量填充固定内容
                 start_write_row = 4
-                # 1. H8 产品分类 = CPSC
+                # 1. H列(8) 产品分类 = CPSC
                 for r in range(start_write_row, max_r + 1):
                     ws.cell(r, 8, "CPSC")
-                # 2. I9 产品单位 = 套
+                # 2. I列(9) 产品单位 = 套
                 for r in range(start_write_row, max_r + 1):
                     ws.cell(r, 9, "套")
-                # 3. AB28 PO创建日期 = 今日
+                # 3. AB列(28) PO创建日期 = 今日
                 for r in range(start_write_row, max_r + 1):
                     ws.cell(r, 28, today)
-                # 4. AC29 FBA箱号 = -
+                # 4. AC列(29) FBA箱号 = -
                 for r in range(start_write_row, max_r + 1):
                     ws.cell(r, 29, "-")
-                # 5. AD30 外箱分货标 = A1
+                # 5. AD列(30) 外箱分货标 = A1
                 for r in range(start_write_row, max_r + 1):
                     ws.cell(r, 30, "A1")
-                # 6. AA27 跟踪号/FBA = 当前分组值
+                # 6. AA列(27) 跟踪号/FBA = 当前分组值
                 for r in range(start_write_row, max_r + 1):
                     ws.cell(r, 27, fba_val)
 
@@ -479,10 +480,7 @@ if gen_split:
                     for col_idx, cell_val in enumerate(line):
                         ws.cell(write_r, col_idx + 1, cell_val)
 
-                # 清理冗余格式，压缩体积
-                wb.names.clear()
-                ws.conditional_formatting.clear()
-                ws.data_validations.dataValidation.clear()
+                # 垃圾回收，释放内存
                 import gc
                 gc.collect()
 
@@ -493,7 +491,7 @@ if gen_split:
                 wb.close()
                 output_files.append(full_save_path)
 
-            # 最高压缩等级打包
+            # 最高压缩等级打包ZIP，极限减小体积
             if len(output_files) > 0:
                 zip_buffer = BytesIO()
                 zip_name = "FBA分单文件.zip"
@@ -501,6 +499,7 @@ if gen_split:
                     for fp in output_files:
                         zf.write(fp, os.path.basename(fp))
                 zip_buffer.seek(0)
+                # 下载按钮
                 st.download_button(
                     label="点击下载压缩包",
                     data=zip_buffer,
@@ -508,10 +507,10 @@ if gen_split:
                     mime="application/zip",
                     key="dl_fba_split"
                 )
-                st.success(f"生成完成，共{len(output_files)}个独立文件，已高压缩处理")
+                st.success(f"✅ 生成完成，共{len(output_files)}个独立文件，已高压缩处理")
             else:
                 st.warning("无有效FBA数据，未生成文件")
             tmp_dir.cleanup()
 
-# 底部提示
-st.markdown("<p style='color:#666; font-size:13px;'>说明：自动合并第2、3行表头，按【跟踪号/FBA】分单；自动填充CPSC、套、当日PO日期、箱号-、分货标A1；文件极致压缩，无多余列名打印</p>", unsafe_allow_html=True)
+# 底部说明
+st.markdown("<p style='color:#666; font-size:13px;'>说明：自动合并第2、3行表头，按【跟踪号/FBA】分单；自动填充CPSC、套、当日PO日期、箱号-、分货标A1；文件极致压缩，无冗余打印</p>", unsafe_allow_html=True)
