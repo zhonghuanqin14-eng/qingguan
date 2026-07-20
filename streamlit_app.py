@@ -383,167 +383,135 @@ if adjust_btn:
 # 分割线
 st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
-# ===================== 模块3：合并表头专用分单生成（终极修复版） =====================
+# ===================== 模块3：稳定轻量分单生成（兼容2/3行合并表头） =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
-st.subheader("3. 合并表头专用分单生成")
+st.subheader("3. 分单文件批量生成")
 file_split = st.file_uploader("上传数据源Excel", type=["xlsx","xls"], key="split_file")
 gen_split = st.button("生成分单文件", key="gen_split", type="primary")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# 分单生成逻辑（合并表头终极修复版）
 if gen_split:
     if not file_split:
-        st.error("请上传数据源文件")
+        st.error("请上传数据源Excel文件")
     else:
-        with st.spinner("正在处理合并表头，生成分单文件..."):
-            # 第一步：先读取Excel，处理合并表头
-            wb_read = load_workbook(file_split, data_only=True)
-            ws_read = wb_read.active
-            max_row = ws_read.max_row
-            max_col = ws_read.max_column
-
-            # 1. 先获取所有合并单元格区域，处理合并表头
-            merged_ranges = list(ws_read.merged_cells.ranges)
-            # 给合并区域的所有单元格填充值，避免合并单元格只有左上角有值
-            for merged_range in merged_ranges:
-                min_row, max_row_r = merged_range.min_row, merged_range.max_row
-                min_col, max_col_c = merged_range.min_col, merged_range.max_col
-                # 取合并区域左上角的值
-                top_left_value = ws_read.cell(row=min_row, column=min_col).value
-                # 给合并区域所有单元格赋值
-                for r in range(min_row, max_row_r + 1):
-                    for c in range(min_col, max_col_c + 1):
-                        ws_read.cell(row=r, column=c, value=top_left_value)
-
-            # 2. 读取第2行(index=1)和第3行(index=2)作为合并表头
-            header_row1 = [str(ws_read.cell(row=2, column=c).value).strip() if ws_read.cell(row=2, column=c).value is not None else "" for c in range(1, max_col + 1)]
-            header_row2 = [str(ws_read.cell(row=3, column=c).value).strip() if ws_read.cell(row=3, column=c).value is not None else "" for c in range(1, max_col + 1)]
-            
-            # 3. 合并两行表头，生成最终列名（两行内容拼接）
-            final_columns = []
-            for h1, h2 in zip(header_row1, header_row2):
-                if h1 and h2:
-                    final_col = f"{h1}{h2}"
-                elif h1:
-                    final_col = h1
-                elif h2:
-                    final_col = h2
+        with st.spinner("读取表格并生成分单..."):
+            # 只读模式读取原始表格，不修改内容
+            df_raw = pd.read_excel(file_split, header=None)
+            # 取第2行(index=1)、第3行(index=2)拼接为表头
+            row_header_2 = df_raw.iloc[1].fillna("").astype(str).str.strip()
+            row_header_3 = df_raw.iloc[2].fillna("").astype(str).str.strip()
+            combine_cols = []
+            for c2, c3 in zip(row_header_2, row_header_3):
+                if c2 and c3:
+                    combine_cols.append(f"{c2}{c3}")
+                elif c2:
+                    combine_cols.append(c2)
+                elif c3:
+                    combine_cols.append(c3)
                 else:
-                    final_col = f"Unnamed_{len(final_columns)}"
-                final_columns.append(final_col)
+                    combine_cols.append(f"col_{len(combine_cols)}")
+            # 数据从第4行(index=3)开始
+            data_df = df_raw.iloc[3:].copy()
+            data_df.columns = combine_cols
+            data_df.columns = data_df.columns.str.strip()
 
-            # 4. 读取数据行：从第4行(index=3)开始
-            data_rows = []
-            for r in range(4, max_row + 1):
-                row_data = [ws_read.cell(row=r, column=c).value for c in range(1, max_col + 1)]
-                data_rows.append(row_data)
-
-            # 5. 转为DataFrame
-            df = pd.DataFrame(data_rows, columns=final_columns)
-            # 列名去除前后空格
-            df.columns = df.columns.str.strip()
-
-            # 6. 按跟踪号/FBA分组
-            group_col = "跟踪号/FBA"
-            if group_col not in df.columns:
-                st.error(f"未找到分组列【{group_col}】，合并表头处理失败，请检查表头位置")
+            # 分组字段：跟踪号/FBA
+            group_key = "跟踪号/FBA"
+            if group_key not in data_df.columns:
+                st.error(f"表格未识别到【{group_key}】列，请检查表头第2、3行")
                 st.stop()
-            groups = df.groupby(group_col)
+            group_list = data_df.groupby(group_key)
 
             tmp_dir = tempfile.TemporaryDirectory()
-            tmp_path = tmp_dir.name
-            file_list = []
-            # 今日日期，格式匹配模板
-            today_date = datetime.now().strftime("%Y-%m-%d").replace("-0", "-")
+            tmp_root = tmp_dir.name
+            output_files = []
+            today = datetime.now().strftime("%Y-%m-%d").replace("-0", "-")
 
-            # 7. 遍历每个分组，生成独立文件
-            for fba_id, group in groups:
-                if pd.isna(fba_id) or str(fba_id).strip() == "":
+            for fba_val, sub_df in group_list:
+                if pd.isna(fba_val) or str(fba_val).strip() == "":
                     continue
-                # 加载模板文件（上传的附件作为模板）
+                # 加载模板（上传的源文件）
                 wb = load_workbook(file_split)
                 ws = wb.active
-                template_max_row = ws.max_row
-                template_max_col = ws.max_column
+                max_r = ws.max_row
+                max_c = ws.max_column
 
-                # 8. 批量拆分所有合并单元格，彻底消除只读报错
-                template_merged_ranges = list(ws.merged_cells.ranges)
-                for merged_range in template_merged_ranges:
-                    ws.unmerge_cells(str(merged_range))
+                # 新建文件时先拆分所有合并单元格，消除只读报错
+                all_merge = list(ws.merged_cells.ranges)
+                for m_range in all_merge:
+                    ws.unmerge_cells(str(m_range))
 
-                # 9. 关闭公式自动计算，大幅减小文件体积
+                # 关闭自动计算，减小文件体积
                 wb.calculation.calcMode = "manual"
 
-                # 10. 自动填充固定列（完全匹配你的Excel列位置）
-                # 产品分类 H列(8) = CPSC
-                for row in range(4, template_max_row + 1):
-                    ws.cell(row=row, column=8, value="CPSC")
-                # 产品数量单位 I列(9) = 套
-                for row in range(4, template_max_row + 1):
-                    ws.cell(row=row, column=9, value="套")
-                # PO创建日期 AB列(28) = 今日日期
-                for row in range(4, template_max_row + 1):
-                    ws.cell(row=row, column=28, value=today_date)
-                # FBA箱号 AC列(29) = -
-                for row in range(4, template_max_row + 1):
-                    ws.cell(row=row, column=29, value="-")
-                # 外箱分货标 AD列(30) = A1
-                for row in range(4, template_max_row + 1):
-                    ws.cell(row=row, column=30, value="A1")
-                # 填充分组号到跟踪号/FBA列 AA列(27)
-                for row in range(4, template_max_row + 1):
-                    ws.cell(row=row, column=27, value=fba_id)
+                # 批量填充固定内容
+                start_write_row = 4
+                # 1. H8 产品分类 = CPSC
+                for r in range(start_write_row, max_r + 1):
+                    ws.cell(r, 8, "CPSC")
+                # 2. I9 产品单位 = 套
+                for r in range(start_write_row, max_r + 1):
+                    ws.cell(r, 9, "套")
+                # 3. AB28 PO创建日期 = 今日
+                for r in range(start_write_row, max_r + 1):
+                    ws.cell(r, 28, today)
+                # 4. AC29 FBA箱号 = -
+                for r in range(start_write_row, max_r + 1):
+                    ws.cell(r, 29, "-")
+                # 5. AD30 外箱分货标 = A1
+                for r in range(start_write_row, max_r + 1):
+                    ws.cell(r, 30, "A1")
+                # 6. AA27 跟踪号/FBA = 当前分组值
+                for r in range(start_write_row, max_r + 1):
+                    ws.cell(r, 27, fba_val)
 
-                # 11. 清空原有明细区域，清除冗余数据
-                for row in range(4, template_max_row + 1):
-                    for col in range(2, 31):
-                        ws.cell(row=row, column=col, value=None)
+                # 清空原有明细区域
+                for r in range(start_write_row, max_r + 1):
+                    for c in range(2, 31):
+                        ws.cell(r, c, None)
 
-                # 12. 写入当前分组明细（数据从第4行开始）
-                rows_data = group.values.tolist()
-                for idx, data_row in enumerate(rows_data):
-                    write_row = 4 + idx
-                    if write_row > template_max_row:
+                # 写入当前分组明细
+                row_data_arr = sub_df.values.tolist()
+                for idx, line in enumerate(row_data_arr):
+                    write_r = start_write_row + idx
+                    if write_r > max_r:
                         break
-                    for col_idx, val in enumerate(data_row):
-                        ws.cell(row=write_row, column=col_idx + 1, value=val)
+                    for col_idx, cell_val in enumerate(line):
+                        ws.cell(write_r, col_idx + 1, cell_val)
 
-                # 13. 清除冗余元素，进一步压缩体积
+                # 清理冗余格式，压缩体积
                 wb.names.clear()
                 ws.conditional_formatting.clear()
                 ws.data_validations.dataValidation.clear()
-
-                # 14. 垃圾回收，释放内存
                 import gc
                 gc.collect()
 
-                # 保存文件，以跟踪号命名
-                save_name = f"{fba_id}.xlsx"
-                save_path = os.path.join(tmp_path, save_name)
-                wb.save(save_path)
+                # 保存单文件
+                file_name = f"{fba_val}.xlsx"
+                full_save_path = os.path.join(tmp_root, file_name)
+                wb.save(full_save_path)
                 wb.close()
-                file_list.append(save_path)
+                output_files.append(full_save_path)
 
-            # 15. 最高压缩等级打包ZIP，极限减小体积
-            if len(file_list) > 0:
-                zip_buf = BytesIO()
+            # 最高压缩等级打包
+            if len(output_files) > 0:
+                zip_buffer = BytesIO()
                 zip_name = "FBA分单文件.zip"
-                with zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
-                    for fp in file_list:
+                with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+                    for fp in output_files:
                         zf.write(fp, os.path.basename(fp))
-                zip_buf.seek(0)
-                # 下载按钮
+                zip_buffer.seek(0)
                 st.download_button(
-                    label="点击下载轻量分单压缩包",
-                    data=zip_buf,
+                    label="点击下载压缩包",
+                    data=zip_buffer,
                     file_name=zip_name,
                     mime="application/zip",
-                    key="dl_split_auto"
+                    key="dl_fba_split"
                 )
-                st.success(f"✅ 生成完成，共{len(file_list)}个独立分单文件，已极限压缩！")
+                st.success(f"生成完成，共{len(output_files)}个独立文件，已高压缩处理")
             else:
-                st.error("未生成有效分单，请检查数据源")
+                st.warning("无有效FBA数据，未生成文件")
             tmp_dir.cleanup()
 
-# 底部说明
-st.markdown("<p style='color:#666; font-size:13px; margin-top:30px;'>模块3：适配第2、3行合并表头，自动处理合并单元格；按【跟踪号/FBA】分组切割，自动填充CPSC、套、今日日期、箱号-、分货标A1；文件体积极限压缩，无冗余打印</p>", unsafe_allow_html=True)
+# 底部提示
+st.markdown("<p style='color:#666; font-size:13px;'>说明：自动合并第2、3行表头，按【跟踪号/FBA】分单；自动填充CPSC、套、当日PO日期、箱号-、分货标A1；文件极致压缩，无多余列名打印</p>", unsafe_allow_html=True)
