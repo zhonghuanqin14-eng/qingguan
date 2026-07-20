@@ -5,6 +5,7 @@ import os
 import zipfile
 import tempfile
 from io import BytesIO
+from datetime import datetime
 
 # ===================== 全局极简样式配置 =====================
 st.set_page_config(page_title="单证工具", page_icon="📦", layout="wide", initial_sidebar_state="collapsed")
@@ -45,7 +46,7 @@ CLEAR_MAP = {
     "imp_addr": "E8",       # 进口商地址 E列第8行
     "imp_contact": "E9",    # 进口商联系人 E列第9行
     "imp_tel": "E10",      # 进口商电话 E列第10行
-    "manu_name": "C38",     # 制造商名称 C列第38行（匹配模板）
+    "manu_name": "C38",     # 制造商名称 C列第38行
     "manu_addr": "C39",     # 制造商地址 C列第39行
     "data_start": 22,        # 明细数据开始行
     "data_end": 35,          # 明细数据结束行
@@ -213,7 +214,7 @@ if gen_clear:
 # 分割线
 st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
-# ===================== 模块2：LCL截单重量体积比例调整（修复版） =====================
+# ===================== 模块2：LCL截单重量体积比例调整 =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.subheader("2. LCL截单重量体积调整")
 upload_cut = st.file_uploader("上传LCL截单Excel", type=["xlsx","xls"], key="cut_file")
@@ -258,11 +259,11 @@ if adjust_btn:
                 row_cells = [str(cell.value).strip() if cell.value is not None else "" for cell in ws[r]]
                 for idx, cell_val in enumerate(row_cells):
                     if "weight" in cell_val.lower() or "gross" in cell_val.lower():
-                        w_col = idx + 1  # 转成1-indexed列号
+                        w_col = idx + 1
                     if "volume" in cell_val.lower() or "cbm" in cell_val.lower():
                         v_col = idx + 1
                 if w_col and v_col:
-                    s_r = r + 1  # 数据行从表头下一行开始
+                    s_r = r + 1
                     break
             # 自动识别数据结束行
             if s_r:
@@ -305,7 +306,6 @@ if adjust_btn:
             # 计算统一缩放比例（保证单箱重体积比不变，和原始一致）
             ratio_w = target_w / sum_w_ori
             ratio_v = target_v / sum_v_ori
-            # 优先用重量比例，若体积比例偏差过大则取平均值
             final_ratio = ratio_w if abs(ratio_w - ratio_v) < 0.001 else (ratio_w + ratio_v) / 2
             st.info(f"缩放比例：{final_ratio:.6f}，目标总重量{target_w:.3f}kg，目标总体积{target_v:.3f}CBM")
 
@@ -325,7 +325,7 @@ if adjust_btn:
                 i = int(round(ew * 1000))
                 w_int_list.append(i)
                 sum_wi += i
-            # 尾差平均分配到所有行，而非只加在最后一行
+            # 尾差平均分配到所有行
             w_diff = target_w_int - sum_wi
             if w_diff != 0:
                 step = 1 if w_diff > 0 else -1
@@ -380,3 +380,116 @@ if adjust_btn:
                 key="dl_cut_auto"
             )
 
+# 分割线
+st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+
+# ===================== 模块3：按FBA号分单生成 =====================
+st.markdown('<div class="card">', unsafe_allow_html=True)
+st.subheader("3. 纽酷send下单发票生成")
+file_split = st.file_uploader("上传数据源Excel", type=["xlsx","xls"], key="split_file")
+gen_split = st.button("生成分单文件", key="gen_split", type="primary")
+st.markdown('</div>', unsafe_allow_html=True)
+
+# 分单生成逻辑
+if gen_split:
+    if not file_split:
+        st.error("请上传数据源文件")
+    elif not os.path.exists(TEMPLATE_FILE):
+        st.error(f"模板文件{TEMPLATE_FILE}缺失，请上传至仓库根目录")
+    else:
+        with st.spinner("正在生成分单文件..."):
+            # 读取数据源
+            df = pd.read_excel(file_split)
+            # 按FBA号分组（列名根据实际数据源调整，这里用"FBA编号"）
+            if "FBA编号" not in df.columns:
+                st.error("数据源中未找到'FBA编号'列，请检查列名")
+                st.stop()
+            groups = df.groupby("FBA编号")
+            tmp_dir = tempfile.TemporaryDirectory()
+            tmp_path = tmp_dir.name
+            file_list = []
+            # 今天的日期，格式2026-7-20（去除前导0）
+            today_date = datetime.now().strftime("%Y-%m-%d").lstrip("0").replace("-0", "-")
+
+            for fba_id, group in groups:
+                wb = load_workbook(TEMPLATE_FILE)
+                ws = wb.active
+
+                # 1. 产品分类列：CPSC（H列，第8列，明细行）
+                for row in range(CLEAR_MAP["data_start"], CLEAR_MAP["data_end"] + 1):
+                    ws.cell(row=row, column=8, value="CPSC")
+                # 2. 产品数量单位列：套（I列，第9列，明细行）
+                for row in range(CLEAR_MAP["data_start"], CLEAR_MAP["data_end"] + 1):
+                    ws.cell(row=row, column=9, value="套")
+                # 3. PO创建日期：今天的日期（B列第12行，根据实际模板调整）
+                ws.cell(row=12, column=2, value=today_date)
+                # 4. FBA箱号：-（M列，第13列，明细行）
+                for row in range(CLEAR_MAP["data_start"], CLEAR_MAP["data_end"] + 1):
+                    ws.cell(row=row, column=13, value="-")
+                # 5. 外箱分货标：A1（N列，第14列，明细行）
+                for row in range(CLEAR_MAP["data_start"], CLEAR_MAP["data_end"] + 1):
+                    ws.cell(row=row, column=14, value="A1")
+
+                # 填充FBA编号
+                ws[CLEAR_MAP["fba_no"]].value = fba_id
+
+                # 清空旧明细区域
+                s_r = CLEAR_MAP["data_start"]
+                e_r = CLEAR_MAP["data_end"]
+                for r in range(s_r, e_r+1):
+                    for c in range(2, 17):
+                        ws.cell(row=r, column=c, value=None)
+
+                # 写入当前分组的产品明细
+                rows = group.values.tolist()
+                for idx, row in enumerate(rows):
+                    r = s_r + idx
+                    # 按数据源列顺序填充，根据实际列名调整
+                    ws.cell(r, 2, row[0])  # 零件号 B列
+                    ws.cell(r, 3, row[1])  # 品名 C列
+                    ws.cell(r, 4, row[2])  # 材质 D列
+                    ws.cell(r, 5, row[3])  # 关税分类 E列
+                    ws.cell(r, 8, "CN")   # 原产国 H列
+                    ws.cell(r, 9, row[7])  # 数量 I列
+                    ws.cell(r, 10, row[8]) # 单价 J列
+                    ws.cell(r, 11, f"=J{r}*I{r}") # 总价 K列
+                    ws.cell(r, 13, row[11]) # 箱数 M列
+                    ws.cell(r, 14, round(row[12], 3)) # 毛重 N列
+                    ws.cell(r, 15, row[13]) # 净重 O列
+                    ws.cell(r, 16, round(row[14], 3)) # 体积 P列
+
+                # 合计公式
+                end_data = s_r + len(rows) - 1
+                total_r = CLEAR_MAP["total_row"]
+                ws.cell(total_r, 11, f"=SUM(K{s_r}:K{end_data})")
+                ws.cell(total_r, 13, f"=SUM(M{s_r}:M{end_data})")
+                ws.cell(total_r, 14, f"=SUM(N{s_r}:N{end_data})")
+                ws.cell(total_r, 15, f"=SUM(O{s_r}:O{end_data})")
+                ws.cell(total_r, 16, f"=SUM(P{s_r}:P{end_data})")
+
+                # 保存文件，命名为FBA号
+                save_path = os.path.join(tmp_path, f"{fba_id}.xlsx")
+                wb.save(save_path)
+                wb.close()
+                file_list.append(save_path)
+
+            # 打包所有分单文件
+            zip_buf = BytesIO()
+            zip_name = "FBA分单文件.zip"
+            with zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                for fp in file_list:
+                    zf.write(fp, os.path.basename(fp))
+            zip_buf.seek(0)
+            # 下载按钮
+            st.download_button(
+                label="点击下载分单压缩包",
+                data=zip_buf,
+                file_name=zip_name,
+                mime="application/zip",
+                key="dl_split_auto"
+            )
+            st.success(f"已生成{len(file_list)}个分单文件，打包完成，请点击下载！")
+            tmp_dir.cleanup()
+
+# 底部极简说明
+st.markdown("<p style='color:#666; font-size:13px; margin-top:30px;'>上方：生成FBA清关打包文件，选择账号后可预览公司信息 | 中间：调整LCL截单重量体积，数值保留3位小数 | 下方：按FBA号分单生成独立文件</p>", unsafe_allow_html=True)
