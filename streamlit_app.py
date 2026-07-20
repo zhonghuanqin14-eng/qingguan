@@ -383,7 +383,7 @@ if adjust_btn:
 # 分割线
 st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
-# ===================== 模块3：按FBA号分单生成（双重兼容：表头名/列序号兜底） =====================
+# ===================== 模块3：按FBA号分单生成（全容错修复版） =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.subheader("3. 按FBA号分单生成")
 file_split = st.file_uploader("上传数据源Excel", type=["xlsx","xls"], key="split_file")
@@ -417,11 +417,11 @@ if gen_split:
                     group_col = col
                     break
 
-            # 2. 文字表头匹配失败，启用列序号兜底（假设FBA数据在第6列，下标6）
+            # 2. 文字表头匹配失败，启用列序号兜底（第7列，下标6）
             group_series = None
             if group_col is None:
                 st.warning("未匹配到文字表头，切换为按第6列数据分组兜底")
-                group_series = df.iloc[:, 6]  # 第7列，下标6，可根据实际修改数字
+                group_series = df.iloc[:, 6]
             else:
                 group_series = df[group_col]
 
@@ -439,84 +439,131 @@ if gen_split:
                 groups = df.groupby("temp_group")
 
             for fba_id, group in groups:
-                if pd.isna(fba_id):
-                    continue  # 跳过空FBA行
+                # 跳过空FBA行
+                if pd.isna(fba_id) or str(fba_id).strip() == "":
+                    continue
                 wb = load_workbook(TEMPLATE_FILE)
                 ws = wb.active
+                max_row_template = ws.max_row
 
-                # 固定填充字段
-                # 产品分类 H8=CPSC
-                for row in range(CLEAR_MAP["data_start"], CLEAR_MAP["data_end"] + 1):
-                    ws.cell(row=row, column=8, value="CPSC")
-                # 单位 I9=套
-                for row in range(CLEAR_MAP["data_start"], CLEAR_MAP["data_end"] + 1):
-                    ws.cell(row=row, column=9, value="套")
-                # PO日期 B12
-                ws.cell(row=12, column=2, value=today_date)
-                # FBA箱号 M13=-
-                for row in range(CLEAR_MAP["data_start"], CLEAR_MAP["data_end"] + 1):
-                    ws.cell(row=row, column=13, value="-")
-                # 分货标 N14=A1
-                for row in range(CLEAR_MAP["data_start"], CLEAR_MAP["data_end"] + 1):
-                    ws.cell(row=row, column=14, value="A1")
+                # 固定填充字段，全部加单行容错
+                # 1. 产品分类 H列8=CPSC
+                try:
+                    for row in range(CLEAR_MAP["data_start"], CLEAR_MAP["data_end"] + 1):
+                        if row <= max_row_template:
+                            ws.cell(row=row, column=8, value="CPSC")
+                except Exception as e:
+                    st.warning(f"填充产品分类失败，跳过该行：{str(e)}")
+                # 2. 单位 I列9=套
+                try:
+                    for row in range(CLEAR_MAP["data_start"], CLEAR_MAP["data_end"] + 1):
+                        if row <= max_row_template:
+                            ws.cell(row=row, column=9, value="套")
+                except Exception as e:
+                    st.warning(f"填充数量单位失败，跳过该行：{str(e)}")
+                # 3. PO创建日期 B12，校验行是否存在
+                try:
+                    if 12 <= max_row_template:
+                        ws.cell(row=12, column=2, value=today_date)
+                    else:
+                        st.warning("模板行数不足，不存在第12行，跳过PO日期填充")
+                except Exception as e:
+                    st.warning(f"填充PO日期失败：{str(e)}")
+                # 4. FBA箱号 M列13=-
+                try:
+                    for row in range(CLEAR_MAP["data_start"], CLEAR_MAP["data_end"] + 1):
+                        if row <= max_row_template:
+                            ws.cell(row=row, column=13, value="-")
+                except Exception as e:
+                    st.warning(f"填充FBA箱号失败，跳过该行：{str(e)}")
+                # 5. 外箱分货标 N列14=A1
+                try:
+                    for row in range(CLEAR_MAP["data_start"], CLEAR_MAP["data_end"] + 1):
+                        if row <= max_row_template:
+                            ws.cell(row=row, column=14, value="A1")
+                except Exception as e:
+                    st.warning(f"填充分货标失败，跳过该行：{str(e)}")
 
-                # 填充FBA编号
-                ws[CLEAR_MAP["fba_no"]].value = fba_id
+                # 填充FBA单号到J8
+                try:
+                    ws[CLEAR_MAP["fba_no"]].value = fba_id
+                except Exception as e:
+                    st.warning(f"填充FBA单号失败：{str(e)}")
 
                 # 清空模板旧明细
                 s_r = CLEAR_MAP["data_start"]
                 e_r = CLEAR_MAP["data_end"]
-                for r in range(s_r, e_r+1):
-                    for c in range(2, 17):
-                        ws.cell(row=r, column=c, value=None)
+                try:
+                    for r in range(s_r, e_r+1):
+                        if r <= max_row_template:
+                            for c in range(2, 17):
+                                ws.cell(row=r, column=c, value=None)
+                except Exception as e:
+                    st.warning(f"清空旧明细部分失败：{str(e)}")
 
                 # 写入明细
                 rows = group.values.tolist()
                 for idx, row in enumerate(rows):
                     r = s_r + idx
-                    ws.cell(r, 2, row[0])
-                    ws.cell(r, 3, row[1])
-                    ws.cell(r, 4, row[2])
-                    ws.cell(r, 5, row[3])
-                    ws.cell(r, 8, "CN")
-                    ws.cell(r, 9, row[7])
-                    ws.cell(r, 10, row[8])
-                    ws.cell(r, 11, f"=J{r}*I{r}")
-                    ws.cell(r, 13, row[11])
-                    ws.cell(r, 14, round(row[12], 3))
-                    ws.cell(r, 15, row[13])
-                    ws.cell(r, 16, round(row[14], 3))
+                    if r > max_row_template:
+                        break # 超出模板最大行，停止写入
+                    try:
+                        ws.cell(r, 2, row[0])
+                        ws.cell(r, 3, row[1])
+                        ws.cell(r, 4, row[2])
+                        ws.cell(r, 5, row[3])
+                        ws.cell(r, 8, "CN")
+                        ws.cell(r, 9, row[7])
+                        ws.cell(r, 10, row[8])
+                        ws.cell(r, 11, f"=J{r}*I{r}")
+                        ws.cell(r, 13, row[11])
+                        ws.cell(r, 14, round(row[12], 3))
+                        ws.cell(r, 15, row[13])
+                        ws.cell(r, 16, round(row[14], 3))
+                    except Exception as e:
+                        st.warning(f"明细第{r}行写入失败，跳过：{str(e)}")
 
                 # 合计公式
                 end_data = s_r + len(rows) - 1
                 total_r = CLEAR_MAP["total_row"]
-                ws.cell(total_r, 11, f"=SUM(K{s_r}:K{end_data})")
-                ws.cell(total_r, 13, f"=SUM(M{s_r}:M{end_data})")
-                ws.cell(total_r, 14, f"=SUM(N{s_r}:N{end_data})")
-                ws.cell(total_r, 15, f"=SUM(O{s_r}:O{end_data})")
-                ws.cell(total_r, 16, f"=SUM(P{s_r}:P{end_data})")
+                try:
+                    if total_r <= max_row_template:
+                        ws.cell(total_r, 11, f"=SUM(K{s_r}:K{end_data})")
+                        ws.cell(total_r, 13, f"=SUM(M{s_r}:M{end_data})")
+                        ws.cell(total_r, 14, f"=SUM(N{s_r}:N{end_data})")
+                        ws.cell(total_r, 15, f"=SUM(O{s_r}:O{end_data})")
+                        ws.cell(total_r, 16, f"=SUM(P{s_r}:P{end_data})")
+                except Exception as e:
+                    st.warning(f"合计公式写入失败：{str(e)}")
 
-                save_path = os.path.join(tmp_path, f"{fba_id}.xlsx")
-                wb.save(save_path)
-                wb.close()
-                file_list.append(save_path)
+                # 文件保存
+                try:
+                    save_path = os.path.join(tmp_path, f"{fba_id}.xlsx")
+                    wb.save(save_path)
+                    wb.close()
+                    file_list.append(save_path)
+                except Exception as e:
+                    st.error(f"FBA:{fba_id} 文件保存失败，跳过该分组：{str(e)}")
 
             # 打包下载
-            zip_buf = BytesIO()
-            zip_name = "FBA分单文件.zip"
-            with zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-                for fp in file_list:
-                    zf.write(fp, os.path.basename(fp))
-            zip_buf.seek(0)
-            st.download_button(
-                label="点击下载分单压缩包",
-                data=zip_buf,
-                file_name=zip_name,
-                mime="application/zip",
-                key="dl_split_auto"
-            )
-            st.success(f"生成完成，共{len(file_list)}个独立分单文件！")
+            if len(file_list) > 0:
+                zip_buf = BytesIO()
+                zip_name = "FBA分单文件.zip"
+                with zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                    for fp in file_list:
+                        zf.write(fp, os.path.basename(fp))
+                zip_buf.seek(0)
+                st.download_button(
+                    label="点击下载分单压缩包",
+                    data=zip_buf,
+                    file_name=zip_name,
+                    mime="application/zip",
+                    key="dl_split_auto"
+                )
+                st.success(f"生成完成，共{len(file_list)}个独立分单文件！")
+            else:
+                st.error("未生成任何有效分单文件，请检查数据源或模板")
             tmp_dir.cleanup()
 
 # 底部说明
-st.markdown("<p style='color:#666; font-size:13px; margin-top:30px;'>上方：生成FBA清关打包文件 | 中间：LCL截单重量体积换算 | 下方：支持无表头表格，可按列序号兜底分组，自动填充CPSC、套、今日日期、箱号-、分货标A1</p>", unsafe_allow_html=True)
+st.markdown("<p style='color:#666; font-size:13px; margin-top:30px;'>上方：生成FBA清关打包文件 | 中间：LCL截单重量体积换算 | 下方：全容错写入，无表头兜底分组，自动填充CPSC、套、今日日期、箱号-、分货标A1</p>", unsafe_allow_html=True)
