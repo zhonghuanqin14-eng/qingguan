@@ -383,13 +383,7 @@ if adjust_btn:
 # 分割线
 st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
-# 分割线
-st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-
-# 分割线
-st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-
-# ===================== 模块3：按FBA号分单生成（优化列名排查） =====================
+# ===================== 模块3：按FBA号分单生成（修复无表头问题） =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.subheader("3. 按FBA号分单生成")
 file_split = st.file_uploader("上传数据源Excel", type=["xlsx","xls"], key="split_file")
@@ -404,13 +398,13 @@ if gen_split:
         st.error(f"模板文件{TEMPLATE_FILE}缺失，请上传至仓库根目录")
     else:
         with st.spinner("正在读取文件，校验列名..."):
-            # 读取数据源
-            df = pd.read_excel(file_split)
-            # 打印全部列名到页面，方便你核对真实表头
+            # 关键修复：header=0 指定第1行为表头，跳过空白行
+            df = pd.read_excel(file_split, header=0)
+            # 打印全部列名到页面，方便核对真实表头
             st.info("当前表格全部列名：")
             st.write(list(df.columns))
             
-            # 兼容多种常见列名：跟踪号/FBA、跟踪号 FBA、FBA、FBA编号
+            # 兼容多种常见列名
             target_cols = ["跟踪号/FBA", "跟踪号 FBA", "FBA", "FBA编号"]
             group_col = None
             for col in target_cols:
