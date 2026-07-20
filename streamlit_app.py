@@ -386,7 +386,10 @@ st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 # 分割线
 st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
-# ===================== 模块3：按FBA号分单生成（修正列名：跟踪号/FBA） =====================
+# 分割线
+st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+
+# ===================== 模块3：按FBA号分单生成（优化列名排查） =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.subheader("3. 按FBA号分单生成")
 file_split = st.file_uploader("上传数据源Excel", type=["xlsx","xls"], key="split_file")
@@ -400,69 +403,78 @@ if gen_split:
     elif not os.path.exists(TEMPLATE_FILE):
         st.error(f"模板文件{TEMPLATE_FILE}缺失，请上传至仓库根目录")
     else:
-        with st.spinner("正在生成分单文件..."):
+        with st.spinner("正在读取文件，校验列名..."):
             # 读取数据源
             df = pd.read_excel(file_split)
-            # 修正列名：跟踪号/FBA
-            group_col = "跟踪号/FBA"
-            if group_col not in df.columns:
-                st.error(f"数据源中未找到'{group_col}'列，请检查表头列名")
+            # 打印全部列名到页面，方便你核对真实表头
+            st.info("当前表格全部列名：")
+            st.write(list(df.columns))
+            
+            # 兼容多种常见列名：跟踪号/FBA、跟踪号 FBA、FBA、FBA编号
+            target_cols = ["跟踪号/FBA", "跟踪号 FBA", "FBA", "FBA编号"]
+            group_col = None
+            for col in target_cols:
+                if col in df.columns:
+                    group_col = col
+                    break
+            if group_col is None:
+                st.error("未识别到分组列！表格内无【跟踪号/FBA、跟踪号 FBA、FBA、FBA编号】任一表头，请核对上方打印的列名")
                 st.stop()
-            # 按跟踪号/FBA分组，相同值生成一份文件
+            st.success(f"已识别分组列：{group_col}")
+            
+            # 按识别到的列分组，相同跟踪号/FBA生成一份文件
             groups = df.groupby(group_col)
             tmp_dir = tempfile.TemporaryDirectory()
             tmp_path = tmp_dir.name
             file_list = []
-            # 今天的日期，格式2026-7-20（去除前导0）
-            today_date = datetime.now().strftime("%Y-%m-%d")
-            # 把 2026-07-20 转为 2026-7-20
-            today_date = today_date.replace("-0", "-")
+            # 今日日期 格式 2026-7-20
+            today_date = datetime.now().strftime("%Y-%m-%d").replace("-0", "-")
 
             for fba_id, group in groups:
                 wb = load_workbook(TEMPLATE_FILE)
                 ws = wb.active
 
-                # 1. 产品分类列H(第8列)：统一填 CPSC
+                # 1. 产品分类 H列(8) 填 CPSC
                 for row in range(CLEAR_MAP["data_start"], CLEAR_MAP["data_end"] + 1):
                     ws.cell(row=row, column=8, value="CPSC")
-                # 2. 产品数量单位I(第9列)：统一填 套
+                # 2. 单位 I列(9) 填 套
                 for row in range(CLEAR_MAP["data_start"], CLEAR_MAP["data_end"] + 1):
                     ws.cell(row=row, column=9, value="套")
-                # 3. PO创建日期 B12行：自动填今日日期
+                # 3. PO创建日期 B12
                 ws.cell(row=12, column=2, value=today_date)
-                # 4. FBA箱号 M列13：统一填 -
+                # 4. FBA箱号 M列(13) 填 -
                 for row in range(CLEAR_MAP["data_start"], CLEAR_MAP["data_end"] + 1):
                     ws.cell(row=row, column=13, value="-")
-                # 5. 外箱分货标 N列14：统一填 A1
+                # 5. 外箱分货标 N列(14) 填 A1
                 for row in range(CLEAR_MAP["data_start"], CLEAR_MAP["data_end"] + 1):
                     ws.cell(row=row, column=14, value="A1")
 
-                # 填充FBA单号到模板J8
+                # 填充FBA单号到J8
                 ws[CLEAR_MAP["fba_no"]].value = fba_id
 
-                # 清空旧明细区域
+                # 清空旧明细
                 s_r = CLEAR_MAP["data_start"]
                 e_r = CLEAR_MAP["data_end"]
                 for r in range(s_r, e_r+1):
                     for c in range(2, 17):
                         ws.cell(row=r, column=c, value=None)
 
-                # 写入当前分组产品明细
+                # 写入明细
                 rows = group.values.tolist()
                 for idx, row in enumerate(rows):
                     r = s_r + idx
-                    ws.cell(r, 2, row[0])  # 零件号 B列
-                    ws.cell(r, 3, row[1])  # 品名 C列
-                    ws.cell(r, 4, row[2])  # 材质 D列
-                    ws.cell(r, 5, row[3])  # 关税分类 E列
-                    ws.cell(r, 8, "CN")   # 原产国 H列
-                    ws.cell(r, 9, row[7])  # 数量 I列
-                    ws.cell(r, 10, row[8]) # 单价 J列
-                    ws.cell(r, 11, f"=J{r}*I{r}") # 总价 K列
-                    ws.cell(r, 13, row[11]) # 箱数 M列
-                    ws.cell(r, 14, round(row[12], 3)) # 毛重 N列
-                    ws.cell(r, 15, row[13]) # 净重 O列
-                    ws.cell(r, 16, round(row[14], 3)) # 体积 P列
+                    ws.cell(r, 2, row[0])    # 零件号 B
+                    ws.cell(r, 3, row[1])    # 品名 C
+                    ws.cell(r, 4, row[2])    # 材质 D
+                    ws.cell(r, 5, row[3])    # 关税分类 E
+                    ws.cell(r, 8, "CN")     # 原产国 H
+                    ws.cell(r, 9, row[7])    # 数量 I
+                    ws.cell(r, 10, row[8])   # 单价 J
+                    ws.cell(r, 11, f"=J{r}*I{r}") # 总价 K
+                    ws.cell(r, 13, row[11])  # 箱数 M
+                    ws.cell(r, 14, round(row[12], 3)) # 毛重 N
+                    ws.cell(r, 15, row[13])  # 净重 O
+                    ws.cell(r, 16, round(row[14], 3)) # 体积 P
 
                 # 合计公式
                 end_data = s_r + len(rows) - 1
@@ -473,20 +485,19 @@ if gen_split:
                 ws.cell(total_r, 15, f"=SUM(O{s_r}:O{end_data})")
                 ws.cell(total_r, 16, f"=SUM(P{s_r}:P{end_data})")
 
-                # 文件命名：以FBA跟踪号命名
+                # 文件命名为FBA跟踪号
                 save_path = os.path.join(tmp_path, f"{fba_id}.xlsx")
                 wb.save(save_path)
                 wb.close()
                 file_list.append(save_path)
 
-            # 打包所有分单
+            # 打包下载
             zip_buf = BytesIO()
             zip_name = "FBA分单文件.zip"
             with zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
                 for fp in file_list:
                     zf.write(fp, os.path.basename(fp))
             zip_buf.seek(0)
-            # 下载按钮
             st.download_button(
                 label="点击下载分单压缩包",
                 data=zip_buf,
@@ -494,8 +505,8 @@ if gen_split:
                 mime="application/zip",
                 key="dl_split_auto"
             )
-            st.success(f"已生成{len(file_list)}个分单文件，打包完成，请点击下载！")
+            st.success(f"生成完成，共{len(file_list)}个独立分单文件！")
             tmp_dir.cleanup()
 
-# 底部极简说明
-st.markdown("<p style='color:#666; font-size:13px; margin-top:30px;'>上方：生成FBA清关打包文件，选择账号后可预览公司信息 | 中间：调整LCL截单重量体积，数值保留3位小数 | 下方：按跟踪号/FBA分单生成独立文件</p>", unsafe_allow_html=True)
+# 底部说明
+st.markdown("<p style='color:#666; font-size:13px; margin-top:30px;'>上方：生成FBA清关打包文件 | 中间：LCL截单重量体积换算 | 下方：按跟踪号/FBA分单生成独立文件，自动填充CPSC、套、今日日期、箱号-、分货标A1</p>", unsafe_allow_html=True)
