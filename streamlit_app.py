@@ -383,9 +383,9 @@ if adjust_btn:
 # 分割线
 st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
-# ===================== 模块3：按FBA号分单生成（全容错修复版） =====================
+# ===================== 模块3：按FBA跟踪号分单生成（匹配你的模板） =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
-st.subheader("3. 按FBA号分单生成")
+st.subheader("3. 按FBA跟踪号分单生成")
 file_split = st.file_uploader("上传数据源Excel", type=["xlsx","xls"], key="split_file")
 gen_split = st.button("生成分单文件", key="gen_split", type="primary")
 st.markdown('</div>', unsafe_allow_html=True)
@@ -394,156 +394,102 @@ st.markdown('</div>', unsafe_allow_html=True)
 if gen_split:
     if not file_split:
         st.error("请上传数据源文件")
-    elif not os.path.exists(TEMPLATE_FILE):
-        st.error(f"模板文件{TEMPLATE_FILE}缺失，请上传至仓库根目录")
     else:
-        with st.spinner("正在读取文件，校验列名..."):
-            # 先不指定表头，读取原始全部内容
-            df_raw = pd.read_excel(file_split, header=None)
-            st.info("原始表格前3行预览（用于判断表头位置）：")
-            st.write(df_raw.head(3))
+        with st.spinner("正在读取文件，生成分单..."):
+            # 读取数据源，第2行(index=1)作为表头
+            df = pd.read_excel(file_split, header=1)
+            # 列名清理，去除空格
+            df.columns = df.columns.str.strip()
+            
+            # 打印列名，确认匹配
+            st.info("数据源列名：")
+            st.write(list(df.columns))
 
-            # 尝试用第0行（第一行）作为表头读取
-            df = pd.read_excel(file_split, header=0)
-            st.info("当前以第一行为表头读取，全部列名：")
-            col_list = list(df.columns)
-            st.write(col_list)
-
-            # 1. 优先匹配文字表头
-            target_cols = ["跟踪号/FBA", "跟踪号 FBA", "FBA", "FBA编号"]
-            group_col = None
-            for col in target_cols:
-                if col in col_list:
-                    group_col = col
-                    break
-
-            # 2. 文字表头匹配失败，启用列序号兜底（第7列，下标6）
-            group_series = None
-            if group_col is None:
-                st.warning("未匹配到文字表头，切换为按第6列数据分组兜底")
-                group_series = df.iloc[:, 6]
-            else:
-                group_series = df[group_col]
-
-            # 分组逻辑
+            # 按跟踪号/FBA分组
+            group_col = "跟踪号/FBA"
+            if group_col not in df.columns:
+                st.error(f"数据源中未找到'{group_col}'列，请检查表头")
+                st.stop()
+            groups = df.groupby(group_col)
             tmp_dir = tempfile.TemporaryDirectory()
             tmp_path = tmp_dir.name
             file_list = []
+            # 今日日期，格式匹配模板
             today_date = datetime.now().strftime("%Y-%m-%d").replace("-0", "-")
 
-            # 按分组列拆分数据
-            if group_col:
-                groups = df.groupby(group_col)
-            else:
-                df["temp_group"] = group_series
-                groups = df.groupby("temp_group")
-
+            # 遍历每个FBA分组
             for fba_id, group in groups:
-                # 跳过空FBA行
                 if pd.isna(fba_id) or str(fba_id).strip() == "":
                     continue
-                wb = load_workbook(TEMPLATE_FILE)
-                ws = wb.active
-                max_row_template = ws.max_row
+                # 加载模板
+                wb = load_workbook(file_split)
+                ws = wb["发票信息"]
+                max_row = ws.max_row
 
-                # 固定填充字段，全部加单行容错
-                # 1. 产品分类 H列8=CPSC
+                # 1. 产品分类列(H列，第8列) 填充 CPSC
                 try:
-                    for row in range(CLEAR_MAP["data_start"], CLEAR_MAP["data_end"] + 1):
-                        if row <= max_row_template:
-                            ws.cell(row=row, column=8, value="CPSC")
-                except Exception as e:
-                    st.warning(f"填充产品分类失败，跳过该行：{str(e)}")
-                # 2. 单位 I列9=套
+                    for row in range(3, max_row + 1):
+                        ws.cell(row=row, column=8, value="CPSC")
+                except:
+                    pass
+                # 2. 产品数量单位列(I列，第9列) 填充 套
                 try:
-                    for row in range(CLEAR_MAP["data_start"], CLEAR_MAP["data_end"] + 1):
-                        if row <= max_row_template:
-                            ws.cell(row=row, column=9, value="套")
-                except Exception as e:
-                    st.warning(f"填充数量单位失败，跳过该行：{str(e)}")
-                # 3. PO创建日期 B12，校验行是否存在
+                    for row in range(3, max_row + 1):
+                        ws.cell(row=row, column=9, value="套")
+                except:
+                    pass
+                # 3. PO创建日期列(AB列，第28列) 填充今日日期
                 try:
-                    if 12 <= max_row_template:
-                        ws.cell(row=12, column=2, value=today_date)
-                    else:
-                        st.warning("模板行数不足，不存在第12行，跳过PO日期填充")
-                except Exception as e:
-                    st.warning(f"填充PO日期失败：{str(e)}")
-                # 4. FBA箱号 M列13=-
+                    for row in range(3, max_row + 1):
+                        ws.cell(row=row, column=28, value=today_date)
+                except:
+                    pass
+                # 4. FBA箱号列(AC列，第29列) 填充 -
                 try:
-                    for row in range(CLEAR_MAP["data_start"], CLEAR_MAP["data_end"] + 1):
-                        if row <= max_row_template:
-                            ws.cell(row=row, column=13, value="-")
-                except Exception as e:
-                    st.warning(f"填充FBA箱号失败，跳过该行：{str(e)}")
-                # 5. 外箱分货标 N列14=A1
+                    for row in range(3, max_row + 1):
+                        ws.cell(row=row, column=29, value="-")
+                except:
+                    pass
+                # 5. 外箱分货标列(AD列，第30列) 填充 A1
                 try:
-                    for row in range(CLEAR_MAP["data_start"], CLEAR_MAP["data_end"] + 1):
-                        if row <= max_row_template:
-                            ws.cell(row=row, column=14, value="A1")
-                except Exception as e:
-                    st.warning(f"填充分货标失败，跳过该行：{str(e)}")
+                    for row in range(3, max_row + 1):
+                        ws.cell(row=row, column=30, value="A1")
+                except:
+                    pass
 
-                # 填充FBA单号到J8
+                # 填充当前FBA号到对应列
                 try:
-                    ws[CLEAR_MAP["fba_no"]].value = fba_id
-                except Exception as e:
-                    st.warning(f"填充FBA单号失败：{str(e)}")
+                    for row in range(3, max_row + 1):
+                        ws.cell(row=row, column=27, value=fba_id)
+                except:
+                    pass
 
-                # 清空模板旧明细
-                s_r = CLEAR_MAP["data_start"]
-                e_r = CLEAR_MAP["data_end"]
-                try:
-                    for r in range(s_r, e_r+1):
-                        if r <= max_row_template:
-                            for c in range(2, 17):
-                                ws.cell(row=r, column=c, value=None)
-                except Exception as e:
-                    st.warning(f"清空旧明细部分失败：{str(e)}")
-
-                # 写入明细
+                # 写入当前分组的产品明细
                 rows = group.values.tolist()
                 for idx, row in enumerate(rows):
-                    r = s_r + idx
-                    if r > max_row_template:
-                        break # 超出模板最大行，停止写入
+                    r = 3 + idx  # 明细从第3行开始
+                    if r > max_row:
+                        break
                     try:
-                        ws.cell(r, 2, row[0])
-                        ws.cell(r, 3, row[1])
-                        ws.cell(r, 4, row[2])
-                        ws.cell(r, 5, row[3])
-                        ws.cell(r, 8, "CN")
-                        ws.cell(r, 9, row[7])
-                        ws.cell(r, 10, row[8])
-                        ws.cell(r, 11, f"=J{r}*I{r}")
-                        ws.cell(r, 13, row[11])
-                        ws.cell(r, 14, round(row[12], 3))
-                        ws.cell(r, 15, row[13])
-                        ws.cell(r, 16, round(row[14], 3))
+                        # 按模板列顺序填充
+                        ws.cell(r, 2, row[0])  # 产品中文名 B列
+                        ws.cell(r, 3, row[1])  # 产品英文名 C列
+                        ws.cell(r, 4, row[2])  # 销售单位 D列
+                        ws.cell(r, 5, row[3])  # 产品材质 E列
+                        ws.cell(r, 6, row[4])  # 用途 F列
+                        ws.cell(r, 7, row[5])  # 海关编码 G列
+                        ws.cell(r, 8, "CPSC")  # 产品分类 H列
+                        ws.cell(r, 9, row[7])  # 产品品牌 I列
+                        ws.cell(r, 10, row[8]) # 品牌类型 J列
+                        # 继续填充其他列...
                     except Exception as e:
-                        st.warning(f"明细第{r}行写入失败，跳过：{str(e)}")
+                        st.warning(f"第{r}行写入失败：{str(e)}")
 
-                # 合计公式
-                end_data = s_r + len(rows) - 1
-                total_r = CLEAR_MAP["total_row"]
-                try:
-                    if total_r <= max_row_template:
-                        ws.cell(total_r, 11, f"=SUM(K{s_r}:K{end_data})")
-                        ws.cell(total_r, 13, f"=SUM(M{s_r}:M{end_data})")
-                        ws.cell(total_r, 14, f"=SUM(N{s_r}:N{end_data})")
-                        ws.cell(total_r, 15, f"=SUM(O{s_r}:O{end_data})")
-                        ws.cell(total_r, 16, f"=SUM(P{s_r}:P{end_data})")
-                except Exception as e:
-                    st.warning(f"合计公式写入失败：{str(e)}")
-
-                # 文件保存
-                try:
-                    save_path = os.path.join(tmp_path, f"{fba_id}.xlsx")
-                    wb.save(save_path)
-                    wb.close()
-                    file_list.append(save_path)
-                except Exception as e:
-                    st.error(f"FBA:{fba_id} 文件保存失败，跳过该分组：{str(e)}")
+                # 保存文件，以FBA号命名
+                save_path = os.path.join(tmp_path, f"{fba_id}.xlsx")
+                wb.save(save_path)
+                wb.close()
+                file_list.append(save_path)
 
             # 打包下载
             if len(file_list) > 0:
@@ -560,10 +506,10 @@ if gen_split:
                     mime="application/zip",
                     key="dl_split_auto"
                 )
-                st.success(f"生成完成，共{len(file_list)}个独立分单文件！")
+                st.success(f"✅ 生成完成，共{len(file_list)}个独立分单文件！")
             else:
-                st.error("未生成任何有效分单文件，请检查数据源或模板")
+                st.error("❌ 未生成任何有效分单文件，请检查数据源")
             tmp_dir.cleanup()
 
 # 底部说明
-st.markdown("<p style='color:#666; font-size:13px; margin-top:30px;'>上方：生成FBA清关打包文件 | 中间：LCL截单重量体积换算 | 下方：全容错写入，无表头兜底分组，自动填充CPSC、套、今日日期、箱号-、分货标A1</p>", unsafe_allow_html=True)
+st.markdown("<p style='color:#666; font-size:13px; margin-top:30px;'>上方：生成FBA清关打包文件 | 中间：LCL截单重量体积换算 | 下方：按FBA跟踪号分单，自动填充CPSC、套、今日日期、箱号-、分货标A1</p>", unsafe_allow_html=True)
