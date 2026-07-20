@@ -401,10 +401,10 @@ if gen_split:
             # 读取数据源
             df = pd.read_excel(file_split)
             # 按FBA号分组（列名根据实际数据源调整，这里用"FBA编号"）
-            if "FBA编号" not in df.columns:
+            if "跟踪号/FBA" not in df.columns:
                 st.error("数据源中未找到'FBA编号'列，请检查列名")
                 st.stop()
-            groups = df.groupby("FBA编号")
+            groups = df.groupby("跟踪号/FBA")
             tmp_dir = tempfile.TemporaryDirectory()
             tmp_path = tmp_dir.name
             file_list = []
