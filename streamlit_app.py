@@ -392,7 +392,7 @@ import gc
 # 分割线
 st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
-# ===================== 模块3：全新重构 无错乱分单生成 =====================
+# ===================== 模块3：双行合并表头专用分单生成 =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.subheader("3. FBA分单文件批量生成")
 file_split = st.file_uploader("上传数据源Excel（同时作为模板）", type=["xlsx","xls"], key="split_file")
@@ -404,76 +404,78 @@ if gen_split:
         st.error("请上传Excel文件")
     else:
         with st.spinner("处理数据，生成分单..."):
-            # ========== 第一步：只读读取数据源，仅提取分组数据，不修改模板 ==========
+            # 重置文件指针，从头读取
+            file_split.seek(0)
             df_raw = pd.read_excel(file_split, header=None)
-            # 表头在第3行（索引2），数据从第4行（索引3）开始
-            header_line = df_raw.iloc[2].fillna("").astype(str).str.strip()
-            data_lines = df_raw.iloc[3:].copy()
-            data_lines.columns = header_line
-            data_lines.columns = data_lines.columns.str.strip()
+            
+            # 读取第2行(index=1)、第3行(index=2)双行合并表头
+            row2 = df_raw.iloc[1].fillna("").astype(str).str.strip()
+            row3 = df_raw.iloc[2].fillna("").astype(str).str.strip()
+            combine_header = []
+            for h2, h3 in zip(row2, row3):
+                if h2 and h3:
+                    combine_header.append(f"{h2}{h3}")
+                elif h2:
+                    combine_header.append(h2)
+                elif h3:
+                    combine_header.append(h3)
+                else:
+                    combine_header.append("")
+            
+            # 数据从第4行(index=3)开始
+            data_df = df_raw.iloc[3:].copy()
+            data_df.columns = combine_header
+            data_df.columns = data_df.columns.str.strip()
 
             group_col = "跟踪号/FBA"
-            if group_col not in data_lines.columns:
-                st.error(f"表格第3行未找到【{group_col}】列，请检查表头")
+            if group_col not in data_df.columns:
+                st.error(f"表格未找到【{group_col}】列，当前识别到的所有表头：{list(data_df.columns)}")
                 st.stop()
 
-            # 按FBA分组
-            groups = data_lines.groupby(group_col)
+            groups = data_df.groupby(group_col)
             tmp_root = tempfile.TemporaryDirectory()
             tmp_path = tmp_root.name
             output_files = []
             today = datetime.datetime.now().strftime("%Y-%m-%d").replace("-0", "-")
 
-            # ========== 第二步：循环每个FBA，单独复制模板填充，杜绝数据残留 ==========
+            # 循环生成每个FBA独立文件
             for fba_code, group_df in groups:
                 if pd.isna(fba_code) or str(fba_code).strip() == "":
                     continue
                 fba_name = str(fba_code).strip()
-                # 过滤文件名非法字符
+                # 清理文件名非法字符
                 safe_name = fba_name.replace("/", "_").replace("\\", "_").replace(":", "_").replace("*", "_")
                 save_name = f"{safe_name}.xlsx"
 
-                # 每次循环全新加载模板，不复用旧工作簿，彻底清除残留数据
+                # 每次重新读取原始干净模板，避免旧数据残留
                 file_split.seek(0)
                 wb = load_workbook(file_split)
                 ws = wb.active
                 max_r = ws.max_row
 
-                # 拆分全部合并单元格，消除MergedCell只读报错
+                # 拆分所有合并单元格，消除只读报错
                 merge_ranges = list(ws.merged_cells.ranges)
                 for rng in merge_ranges:
                     ws.unmerge_cells(str(rng))
 
-                # 关闭自动计算，缩小文件体积
                 wb.calculation.calcMode = "manual"
 
-                # 清空数据区域：4行及以下全部清空，解决重复旧数据
+                # 清空4行及以下全部旧数据
                 for row in range(4, max_r + 1):
                     for col in range(2, 31):
                         ws.cell(row=row, column=col, value=None)
 
-                # 固定填充全局字段
                 start_write = 4
-                # H列8 = CPSC
+                # 固定填充字段
                 for r in range(start_write, max_r + 1):
-                    ws.cell(r, 8, "CPSC")
-                # I列9 = 套
-                for r in range(start_write, max_r + 1):
-                    ws.cell(r, 9, "套")
-                # AB列28 = 今日日期
-                for r in range(start_write, max_r + 1):
-                    ws.cell(r, 28, today)
-                # AC列29 = -
-                for r in range(start_write, max_r + 1):
-                    ws.cell(r, 29, "-")
-                # AD列30 = A1
-                for r in range(start_write, max_r + 1):
-                    ws.cell(r, 30, "A1")
-                # AA列27 = 当前FBA编号
-                for r in range(start_write, max_r + 1):
-                    ws.cell(r, 27, fba_code)
+                    ws.cell(r, 8, "CPSC")          # H列 产品分类
+                    ws.cell(r, 9, "套")             # I列 单位
+                    ws.cell(r, 28, today)           # AB列 PO日期
+                    ws.cell(r, 29, "-")             # AC列 FBA箱号
+                    ws.cell(r, 30, "A1")            # AD列 分货标
+                    ws.cell(r, 27, fba_code)        # AA列 跟踪号/FBA
 
-                # 写入当前分组明细数据，逐行填充
+                # 写入当前分组明细
                 data_rows = group_df.values.tolist()
                 for idx, line in enumerate(data_rows):
                     write_row = start_write + idx
@@ -482,14 +484,14 @@ if gen_split:
                     for col_idx, val in enumerate(line):
                         ws.cell(write_row, col_idx + 1, val)
 
-                # 保存单个文件
+                # 保存单文件
                 full_save = tempfile.os.path.join(tmp_path, save_name)
                 wb.save(full_save)
                 wb.close()
                 gc.collect()
                 output_files.append(full_save)
 
-            # 最高压缩打包zip
+            # 最高压缩打包
             if len(output_files) > 0:
                 zip_buf = BytesIO()
                 zip_name = "FBA分单文件.zip"
@@ -510,4 +512,4 @@ if gen_split:
             tmp_root.cleanup()
 
 # 底部说明
-st.markdown("<p style='color:#666; font-size:13px;'>重构优化：每次生成文件重新加载干净模板，无旧数据残留；按跟踪号/FBA拆分，自动填充CPSC、套、当日PO日期、箱号-、分货标A1；高压缩减小文件体积</p>", unsafe_allow_html=True)
+st.markdown("<p style='color:#666; font-size:13px;'>适配第2、3行双行合并表头；每次生成文件重新加载干净模板，无旧数据重复乱码；按跟踪号/FBA拆分，自动填充CPSC、套、当日PO日期、箱号-、分货标A1；高压缩减小文件体积</p>", unsafe_allow_html=True)
