@@ -408,9 +408,10 @@ with col2:
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# 获取今日日期（兼容各平台）
-today = datetime.now()
-today_str = f"{today.year}-{today.month}-{today.day}"
+# 获取今日日期（使用datetime模块）
+from datetime import datetime as dt
+now = dt.now()
+today_str = f"{now.year}-{now.month}-{now.day}"
 
 # 模板列映射（源数据列名 → 模板列字母）
 INVOICE_COL_MAP = {
@@ -451,7 +452,11 @@ if gen_invoice:
         st.error(f"模板文件 {TEMPLATE_INVOICE_FILE} 缺失，请上传至仓库根目录")
     else:
         with st.spinner("正在生成发票文件..."):
-            df = pd.read_excel(file_invoice)
+            try:
+                df = pd.read_excel(file_invoice)
+            except Exception as e:
+                st.error(f"读取Excel文件失败：{str(e)}")
+                st.stop()
             
             # 检查必要的列是否存在
             required_cols = ["跟踪号/FBA", "产品中文名", "产品英文名", "产品材质", "用途", "海关编码", 
@@ -472,57 +477,76 @@ if gen_invoice:
             file_list = []
 
             for fba_id, group in groups:
-                # 加载模板
-                wb = load_workbook(TEMPLATE_INVOICE_FILE)
-                ws = wb.active
-                
-                # 数据从第4行开始（第2-3行是合并表头）
-                data_start_row = 4
-                
-                # 清空旧数据（从第4行开始到100行）
-                for r in range(data_start_row, 101):
-                    for c in range(1, 32):
-                        ws.cell(row=r, column=c, value=None)
-                
-                # 获取当前组的行数据
-                group_rows = group.to_dict('records')
-                
-                # 写入新数据
-                for idx, row_data in enumerate(group_rows):
-                    r = data_start_row + idx
+                try:
+                    # 加载模板
+                    wb = load_workbook(TEMPLATE_INVOICE_FILE)
+                    ws = wb.active
                     
-                    # 填充映射的列
-                    for col_name, col_letter in INVOICE_COL_MAP.items():
-                        if col_name in row_data and pd.notna(row_data[col_name]):
-                            ws[f"{col_letter}{r}"] = row_data[col_name]
+                    # 数据从第4行开始（第2-3行是合并表头）
+                    data_start_row = 4
                     
-                    # 处理尺寸CM拆分（长宽高）
-                    if "尺寸CM" in row_data and pd.notna(row_data["尺寸CM"]):
-                        dim_str = str(row_data["尺寸CM"]).strip()
-                        # 按空格或x或*或×拆分
-                        import re
-                        dims = re.split(r'[ x*×\s]+', dim_str)
-                        dims = [d for d in dims if d.strip() and d.strip().replace('.', '').isdigit()]
-                        if len(dims) >= 1:
-                            ws[f"U{r}"] = float(dims[0])
-                        if len(dims) >= 2:
-                            ws[f"V{r}"] = float(dims[1])
-                        if len(dims) >= 3:
-                            ws[f"W{r}"] = float(dims[2])
+                    # 清空旧数据（从第4行开始到100行）
+                    for r in range(data_start_row, 101):
+                        for c in range(1, 32):
+                            ws.cell(row=r, column=c, value=None)
                     
-                    # 填充固定值
-                    for col_letter, value in INVOICE_FIXED_VALUES.items():
-                        ws[f"{col_letter}{r}"] = value
+                    # 获取当前组的行数据
+                    group_rows = group.to_dict('records')
                     
-                    # 填充PO创建日期（今日日期）-> 模板中是AC列
-                    ws[f"AC{r}"] = today_str
-                
-                # 保存文件
-                safe_fba_id = str(fba_id).replace("/", "_").replace("\\", "_")
-                save_path = os.path.join(tmp_path, f"{safe_fba_id}.xlsx")
-                wb.save(save_path)
-                wb.close()
-                file_list.append(save_path)
+                    # 写入新数据
+                    for idx, row_data in enumerate(group_rows):
+                        r = data_start_row + idx
+                        
+                        # 填充映射的列
+                        for col_name, col_letter in INVOICE_COL_MAP.items():
+                            if col_name in row_data and pd.notna(row_data[col_name]):
+                                ws[f"{col_letter}{r}"] = row_data[col_name]
+                        
+                        # 处理尺寸CM拆分（长宽高）
+                        if "尺寸CM" in row_data and pd.notna(row_data["尺寸CM"]):
+                            dim_str = str(row_data["尺寸CM"]).strip()
+                            # 按空格或x或*或×拆分
+                            import re
+                            dims = re.split(r'[ x*×\s]+', dim_str)
+                            dims = [d for d in dims if d.strip() and d.strip().replace('.', '').replace('-', '').isdigit()]
+                            if len(dims) >= 1:
+                                try:
+                                    ws[f"U{r}"] = float(dims[0])
+                                except:
+                                    pass
+                            if len(dims) >= 2:
+                                try:
+                                    ws[f"V{r}"] = float(dims[1])
+                                except:
+                                    pass
+                            if len(dims) >= 3:
+                                try:
+                                    ws[f"W{r}"] = float(dims[2])
+                                except:
+                                    pass
+                        
+                        # 填充固定值
+                        for col_letter, value in INVOICE_FIXED_VALUES.items():
+                            ws[f"{col_letter}{r}"] = value
+                        
+                        # 填充PO创建日期（今日日期）-> 模板中是AC列
+                        ws[f"AC{r}"] = today_str
+                    
+                    # 保存文件
+                    safe_fba_id = str(fba_id).replace("/", "_").replace("\\", "_")
+                    save_path = os.path.join(tmp_path, f"{safe_fba_id}.xlsx")
+                    wb.save(save_path)
+                    wb.close()
+                    file_list.append(save_path)
+                    
+                except Exception as e:
+                    st.warning(f"处理FBA {fba_id} 时出错：{str(e)}，已跳过")
+                    continue
+            
+            if not file_list:
+                st.error("没有成功生成任何文件，请检查数据格式")
+                tmp_dir.cleanup()
+                st.stop()
             
             # 打包zip
             zip_buf = BytesIO()
