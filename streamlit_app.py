@@ -497,8 +497,8 @@ if gen_invoice:
             tmp_dir = tempfile.mkdtemp()
             file_paths = []
             
-            # 预加载模板
-            template_wb = load_workbook(TEMPLATE_INVOICE_FILE)
+            # 加载模板（使用 data_only=True 避免图片问题）
+            template_wb = load_workbook(TEMPLATE_INVOICE_FILE, data_only=True)
             
             for idx, (fba_id, group) in enumerate(groups):
                 # 更新进度
@@ -506,21 +506,19 @@ if gen_invoice:
                 progress_bar.progress(progress)
                 status_text.text(f"🔄 正在处理: {fba_id} ({idx+1}/{total_groups})")
                 
-                # 复制模板
-                import io
-                template_bytes = io.BytesIO()
-                template_wb.save(template_bytes)
-                template_bytes.seek(0)
-                wb = load_workbook(template_bytes)
+                # 使用 openpyxl 的 copy_worksheet 方法复制工作表
+                # 但更简单的方法是每次重新加载模板（速度稍慢但稳定）
+                wb = load_workbook(TEMPLATE_INVOICE_FILE, data_only=True)
                 ws = wb.active
                 
                 # 数据从第4行开始
                 data_start_row = 4
                 
-                # 清空旧数据
+                # 清空旧数据（保留图片和格式）
                 for r in range(data_start_row, 101):
                     for c in range(1, 32):
-                        ws.cell(row=r, column=c, value=None)
+                        if ws.cell(row=r, column=c).value is not None:
+                            ws.cell(row=r, column=c, value=None)
                 
                 # 获取当前组的行数据
                 group_rows = group.to_dict('records')
@@ -572,7 +570,6 @@ if gen_invoice:
                 file_paths.append(save_path)
                 
                 wb.close()
-                template_bytes.close()
             
             # 关闭模板
             template_wb.close()
@@ -597,26 +594,22 @@ if gen_invoice:
             
             st.success(f"✅ 成功生成 {total_groups} 个文件，压缩包大小: {file_size_mb:.2f} MB")
             
-            # 使用 st.download_button 直接读取文件
+            # 读取文件到内存用于下载
             with open(zip_path, "rb") as f:
-                st.download_button(
-                    label="📥 点击下载发票压缩包",
-                    data=f,
-                    file_name=zip_name,
-                    mime="application/zip",
-                    key="dl_invoice_final",
-                    use_container_width=True,
-                )
+                zip_data = f.read()
             
-            # 清理临时文件（注意：下载按钮读取完成后，文件可能已被读取）
-            # 我们延迟清理，在 session 结束时清理
-            import atexit
-            def cleanup():
-                try:
-                    shutil.rmtree(tmp_dir, ignore_errors=True)
-                except:
-                    pass
-            atexit.register(cleanup)
+            # 清理临时文件
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            
+            # 提供下载按钮
+            st.download_button(
+                label="📥 点击下载发票压缩包",
+                data=zip_data,
+                file_name=zip_name,
+                mime="application/zip",
+                key="dl_invoice_final",
+                use_container_width=True,
+            )
             
             # 清理进度条
             progress_bar.empty()
