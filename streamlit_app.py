@@ -491,10 +491,10 @@ if gen_invoice:
             status_text.text(f"📊 找到 {total_groups} 个FBA号，开始生成文件...")
             progress_bar.progress(5)
             
-            # 使用内存中的 BytesIO 列表，减少磁盘IO
+            # 使用内存中的 BytesIO 列表
             file_data_list = []
             
-            # 预加载模板一次，然后复制，提高效率
+            # 预加载模板
             template_wb = load_workbook(TEMPLATE_INVOICE_FILE)
             
             for idx, (fba_id, group) in enumerate(groups):
@@ -503,11 +503,10 @@ if gen_invoice:
                 progress_bar.progress(progress)
                 status_text.text(f"🔄 正在处理: {fba_id} ({idx+1}/{total_groups})")
                 
-                # 复制模板（比重新加载快）
+                # 复制模板
                 from openpyxl import Workbook
                 import io
                 
-                # 方法：保存模板到内存再重新加载（深拷贝）
                 template_bytes = io.BytesIO()
                 template_wb.save(template_bytes)
                 template_bytes.seek(0)
@@ -571,9 +570,11 @@ if gen_invoice:
                 file_bytes.seek(0)
                 
                 safe_fba_id = str(fba_id).replace("/", "_").replace("\\", "_")
-                file_data_list.append((safe_fba_id, file_bytes))
+                file_data_list.append((safe_fba_id, file_bytes.getvalue()))  # 保存二进制数据而不是 BytesIO 对象
                 
                 wb.close()
+                template_bytes.close()
+                file_bytes.close()
             
             # 关闭模板
             template_wb.close()
@@ -581,28 +582,35 @@ if gen_invoice:
             progress_bar.progress(95)
             status_text.text("📦 正在打包ZIP文件...")
             
-            # 创建ZIP压缩包
+            # 创建ZIP压缩包（使用 BytesIO，但不要用 with 自动关闭）
             zip_buf = BytesIO()
             zip_name = f"发票模板填充_{today_str}.zip"
             
-            with zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
-                for fba_name, file_bytes in file_data_list:
-                    zf.writestr(f"{fba_name}.xlsx", file_bytes.getvalue())
-            
-            zip_buf.seek(0)
+            zip_file = zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6)
+            for fba_name, file_data in file_data_list:
+                zip_file.writestr(f"{fba_name}.xlsx", file_data)
+            zip_file.close()  # 手动关闭，但 zip_buf 仍然可用
             
             # 清理内存
             file_data_list.clear()
             
+            # 重要：将 zip_buf 的数据复制到一个新的 BytesIO，避免被意外关闭
+            zip_data = zip_buf.getvalue()
+            zip_buf.close()
+            
+            # 创建新的 BytesIO 用于下载
+            download_buf = BytesIO(zip_data)
+            
             progress_bar.progress(100)
             status_text.text(f"✅ 完成！共生成 {total_groups} 个文件")
             
-            # 显示下载按钮，使用大文件下载优化
-            st.success(f"✅ 成功生成 {total_groups} 个文件，压缩包大小: {zip_buf.getbuffer().nbytes / 1024 / 1024:.2f} MB")
+            # 显示下载按钮
+            file_size_mb = len(zip_data) / 1024 / 1024
+            st.success(f"✅ 成功生成 {total_groups} 个文件，压缩包大小: {file_size_mb:.2f} MB")
             
             st.download_button(
                 label="📥 点击下载发票压缩包",
-                data=zip_buf,
+                data=download_buf,
                 file_name=zip_name,
                 mime="application/zip",
                 key="dl_invoice_auto",
