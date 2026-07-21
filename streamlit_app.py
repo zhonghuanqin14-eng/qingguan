@@ -395,8 +395,7 @@ st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
 # ===================== 模块3：发票信息批量填充模板 =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
-st.subheader("3. 发票信息批量填充模板 (1.xlsx)")
-st.markdown("上传附件Excel，按FBA号分组填充到模板 `1.xlsx` 中，以FBA号命名输出文件。")
+st.subheader("3. 发票信息批量填充")
 st.info("固定填充值：产品分类=CPSC，产品数量单位=套，FBA箱号=-，外箱分货标=A1，PO创建日期=今日日期")
 
 col1, col2 = st.columns([0.6, 0.4], gap="medium")
