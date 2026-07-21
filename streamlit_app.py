@@ -68,7 +68,7 @@ CUT_MAP = {
 
 # 模板文件名（和你上传的完全一致）
 TEMPLATE_FILE = "AL0-SBU6B5D6EZU6S.xlsx"
-
+TEMPLATE_INVOICE_FILE = "1.xlsx"  # 模板文件名
 # ===================== 页面标题 =====================
 st.markdown('<div class="main-title">📦 单证批量处理工具</div>', unsafe_allow_html=True)
 
@@ -393,144 +393,150 @@ import os
 # 分割线
 st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
-# ===================== 模块3：100%匹配正确样式分单生成 =====================
+# ===================== 模块3：发票信息批量填充模板 =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
-st.subheader("3. FBA分单文件批量生成")
-file_split = st.file_uploader("上传数据源Excel（同时作为模板）", type=["xlsx","xls"], key="split_file")
-gen_split = st.button("生成分单文件", key="gen_split", type="primary")
+st.subheader("3. 发票信息批量填充模板 (1.xlsx)")
+st.markdown("上传附件Excel，按FBA号分组填充到模板 `1.xlsx` 中，以FBA号命名输出文件。")
+st.info("固定填充值：产品分类=CPSC，产品数量单位=套，FBA箱号=-，外箱分货标=A1，PO创建日期=今日日期")
+
+col1, col2 = st.columns([0.6, 0.4], gap="medium")
+with col1:
+    file_invoice = st.file_uploader("上传数据源Excel（如附件.xlsx）", type=["xlsx","xls"], key="invoice_file")
+with col2:
+    st.markdown('<div style="margin-top:28px;"></div>', unsafe_allow_html=True)
+    gen_invoice = st.button("生成并下载发票文件", key="gen_invoice", type="primary")
+
 st.markdown('</div>', unsafe_allow_html=True)
 
-if gen_split:
-    if not file_split:
-        st.error("请上传Excel文件")
+# 获取今日日期
+today_str = datetime.now().strftime("%Y-%-m-%-d")
+
+# 模板列映射（源数据列名 → 模板列字母）
+INVOICE_COL_MAP = {
+    "产品中文名": "B",
+    "产品英文名": "C",
+    "产品材质": "E",
+    "用途": "F",
+    "海关编码": "G",
+    "产品品牌": "I",
+    "品牌类型": "J",
+    "型号": "K",
+    "产品数量": "L",
+    "申报单价": "N",
+    "申报总价": "O",
+    "采购单价": "P",
+    "采购总货值": "Q",
+    "件数CTN": "T",
+    "总体积": "X",
+    "总净重": "Y",
+    "总毛重": "Z",
+    "跟踪号/FBA": "AA",
+    "内部追踪号/PO": "AB",
+}
+
+# 固定填充值（列字母 → 值）
+INVOICE_FIXED_VALUES = {
+    "H": "CPSC",      # 产品分类
+    "M": "套",        # 产品数量单位
+    "AD": "-",        # FBA箱号
+    "AE": "A1",       # 外箱分货标
+}
+
+# 发票填充逻辑
+if gen_invoice:
+    if not file_invoice:
+        st.error("请上传数据源文件")
+    elif not os.path.exists(TEMPLATE_INVOICE_FILE):
+        st.error(f"模板文件 {TEMPLATE_INVOICE_FILE} 缺失，请上传至仓库根目录")
     else:
-        with st.spinner("处理数据，生成标准分单..."):
-            # 重置文件读取指针，从头读取
-            file_split.seek(0)
-            df_raw = pd.read_excel(file_split, header=None)
-
-            # ========== 1. 正确解析双行表头（匹配1.xlsx结构） ==========
-            # 主表头在第2行(index=1)，子表头在第3行(index=2)
-            main_header = df_raw.iloc[1].fillna("").astype(str).str.strip()
-            sub_header = df_raw.iloc[2].fillna("").astype(str).str.strip()
+        with st.spinner("正在生成发票文件..."):
+            df = pd.read_excel(file_invoice)
             
-            # 合并生成最终列名，子表头为空则只用主表头
-            final_columns = []
-            for main_h, sub_h in zip(main_header, sub_header):
-                if sub_h:
-                    final_col = f"{main_h}{sub_h}".strip()
-                else:
-                    final_col = main_h.strip()
-                final_columns.append(final_col if final_col else f"col_{len(final_columns)}")
+            # 检查必要的列是否存在
+            required_cols = ["跟踪号/FBA", "产品中文名", "产品英文名", "产品材质", "用途", "海关编码", 
+                            "产品品牌", "品牌类型", "型号", "产品数量", "申报单价", "申报总价", 
+                            "采购单价", "采购总货值", "件数CTN", "尺寸CM", "总体积", 
+                            "总净重", "总毛重", "内部追踪号/PO"]
             
-            # 数据从第4行(index=3)开始读取
-            data_df = df_raw.iloc[3:].copy()
-            data_df.columns = final_columns
-            data_df.columns = data_df.columns.str.strip()
-
-            # ========== 2. 按跟踪号/FBA分组 ==========
-            group_col = "跟踪号/FBA"
-            if group_col not in data_df.columns:
-                st.error(f"表格未找到【{group_col}】列，当前识别到的表头：{list(data_df.columns)}")
+            missing_cols = [col for col in required_cols if col not in df.columns]
+            if missing_cols:
+                st.error(f"数据源缺少必要列：{', '.join(missing_cols)}")
                 st.stop()
-            groups = data_df.groupby(group_col)
-
+            
+            # 按FBA号分组
+            groups = df.groupby("跟踪号/FBA")
+            
             tmp_dir = tempfile.TemporaryDirectory()
             tmp_path = tmp_dir.name
-            output_files = []
-            # 今日日期，格式匹配1.xlsx：2026-7-20
-            today = datetime.datetime.now().strftime("%Y-%m-%d").replace("-0", "-")
+            file_list = []
 
-            # ========== 3. 遍历每个FBA，生成标准文件 ==========
-            for fba_code, group_df in groups:
-                if pd.isna(fba_code) or str(fba_code).strip() == "":
-                    continue
-                fba_name = str(fba_code).strip()
-                # 清理文件名非法字符，避免Windows报错
-                safe_name = fba_name.replace("/", "_").replace("\\", "_").replace(":", "_").replace("*", "_")
-                save_name = f"{safe_name}.xlsx"
-
-                # 每次循环重新读取干净模板，彻底清除旧数据残留
-                file_split.seek(0)
-                wb = load_workbook(file_split)
+            for fba_id, group in groups:
+                # 加载模板
+                wb = load_workbook(TEMPLATE_INVOICE_FILE)
                 ws = wb.active
-                max_r = ws.max_row
-                max_c = ws.max_column
-
-                # 拆分所有合并单元格，消除MergedCell只读报错
-                merge_ranges = list(ws.merged_cells.ranges)
-                for rng in merge_ranges:
-                    ws.unmerge_cells(str(rng))
-
-                # 关闭公式自动计算，大幅减小文件体积
-                wb.calculation.calcMode = "manual"
-
-                # ========== 4. 清空旧数据（解决重复问题） ==========
-                # 清空第4行及以下的所有数据列，不留任何残留
-                for row in range(4, max_r + 1):
-                    for col in range(2, max_c + 1):
-                        ws.cell(row=row, column=col, value=None)
-
-                # ========== 5. 批量填充固定字段（100%匹配1.xlsx列号） ==========
-                start_write_row = 4
-                # 产品分类(*) H列(8) = CPSC
-                for r in range(start_write_row, max_r + 1):
-                    ws.cell(r, 8, "CPSC")
-                # 产品数量单位(*) I列(9) = 套
-                for r in range(start_write_row, max_r + 1):
-                    ws.cell(r, 9, "套")
-                # PO创建日期 AB列(28) = 今日日期
-                for r in range(start_write_row, max_r + 1):
-                    ws.cell(r, 28, today)
-                # FBA箱号 AC列(29) = -
-                for r in range(start_write_row, max_r + 1):
-                    ws.cell(r, 29, "-")
-                # 外箱分货标(*) AD列(30) = A1
-                for r in range(start_write_row, max_r + 1):
-                    ws.cell(r, 30, "A1")
-                # 跟踪号/FBA AA列(27) = 当前FBA编号
-                for r in range(start_write_row, max_r + 1):
-                    ws.cell(r, 27, fba_code)
-
-                # ========== 6. 写入当前分组明细数据 ==========
-                data_rows = group_df.values.tolist()
-                for idx, line in enumerate(data_rows):
-                    write_row = start_write_row + idx
-                    if write_row > max_r:
-                        break
-                    # 按列顺序严格对应写入，和1.xlsx结构完全一致
-                    for col_idx, val in enumerate(line):
-                        ws.cell(write_row, col_idx + 1, val)
-
-                # ========== 7. 保存文件 ==========
-                full_save_path = os.path.join(tmp_path, save_name)
-                wb.save(full_save_path)
+                
+                # 数据从第4行开始（第2-3行是合并表头）
+                data_start_row = 4
+                
+                # 清空旧数据（从第4行开始）
+                for r in range(data_start_row, 100):  # 清空到100行，足够覆盖
+                    for c in range(1, 32):  # A到AE列
+                        ws.cell(row=r, column=c, value=None)
+                
+                # 获取当前组的行数据
+                group_rows = group.to_dict('records')
+                
+                # 写入新数据
+                for idx, row_data in enumerate(group_rows):
+                    r = data_start_row + idx
+                    
+                    # 填充映射的列
+                    for col_name, col_letter in INVOICE_COL_MAP.items():
+                        if col_name in row_data and pd.notna(row_data[col_name]):
+                            ws[f"{col_letter}{r}"] = row_data[col_name]
+                    
+                    # 处理尺寸CM拆分（长宽高）
+                    if "尺寸CM" in row_data and pd.notna(row_data["尺寸CM"]):
+                        dim_str = str(row_data["尺寸CM"]).strip()
+                        # 尝试按空格或乘号拆分
+                        import re
+                        dims = re.split(r'[ x*×\s]+', dim_str)
+                        dims = [d for d in dims if d.strip() and d.strip().isdigit()]
+                        if len(dims) >= 1:
+                            ws[f"U{r}"] = float(dims[0])  # 长
+                        if len(dims) >= 2:
+                            ws[f"V{r}"] = float(dims[1])  # 宽
+                        if len(dims) >= 3:
+                            ws[f"W{r}"] = float(dims[2])  # 高
+                    
+                    # 填充固定值
+                    for col_letter, value in INVOICE_FIXED_VALUES.items():
+                        ws[f"{col_letter}{r}"] = value
+                    
+                    # 填充PO创建日期（今日日期）
+                    ws[f"AC{r}"] = today_str
+                
+                # 保存文件
+                safe_fba_id = str(fba_id).replace("/", "_").replace("\\", "_")
+                save_path = os.path.join(tmp_path, f"{safe_fba_id}.xlsx")
+                wb.save(save_path)
                 wb.close()
-                # 垃圾回收，释放内存
-                gc.collect()
-                output_files.append(full_save_path)
-
-            # ========== 8. 最高压缩等级打包ZIP ==========
-            if len(output_files) > 0:
-                zip_buf = BytesIO()
-                zip_name = "FBA分单文件.zip"
-                # 最高9级压缩，极限减小文件体积
-                with zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
-                    for fp in output_files:
-                        zf.write(fp, os.path.basename(fp))
-                zip_buf.seek(0)
-                # 下载按钮
-                st.download_button(
-                    label="点击下载分单压缩包",
-                    data=zip_buf,
-                    file_name=zip_name,
-                    mime="application/zip",
-                    key="dl_fba_export"
-                )
-                st.success(f"✅ 生成完成，共{len(output_files)}个独立文件，样式完全匹配1.xlsx")
-            else:
-                st.warning("无有效FBA数据，未生成文件")
+                file_list.append(save_path)
+            
+            # 打包zip
+            zip_buf = BytesIO()
+            zip_name = f"发票模板填充_{today_str}.zip"
+            with zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                for fp in file_list:
+                    zf.write(fp, os.path.basename(fp))
+            zip_buf.seek(0)
+            
+            st.download_button(
+                label="点击下载发票压缩包",
+                data=zip_buf,
+                file_name=zip_name,
+                mime="application/zip",
+                key="dl_invoice_auto"
+            )
+            st.success(f"{zip_name} 已生成，共 {len(file_list)} 个文件，请点击上方按钮下载！")
             tmp_dir.cleanup()
-
-# 底部说明
-st.markdown("<p style='color:#666; font-size:13px;'>100%匹配1.xlsx正确样式；适配第2、3行双行合并表头；每次加载全新模板无旧数据重复；按跟踪号/FBA拆分，自动填充CPSC、套、当日PO日期、箱号-、分货标A1；高压缩减小文件体积</p>", unsafe_allow_html=True)
