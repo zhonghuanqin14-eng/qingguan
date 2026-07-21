@@ -394,6 +394,7 @@ import os
 st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
 # ===================== 模块3：发票信息批量填充模板 =====================
+# ===================== 模块3：发票信息批量填充模板 =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.subheader("3. 发票信息批量填充模板 (1.xlsx)")
 st.markdown("上传附件Excel，按FBA号分组填充到模板 `1.xlsx` 中，以FBA号命名输出文件。")
@@ -408,12 +409,13 @@ with col2:
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# 获取今日日期（使用datetime模块）
+# 获取今日日期
 from datetime import datetime as dt
 now = dt.now()
 today_str = f"{now.year}-{now.month}-{now.day}"
 
 # 模板列映射（源数据列名 → 模板列字母）
+# 注意：列名要去掉 (*) 等后缀
 INVOICE_COL_MAP = {
     "产品中文名": "B",
     "产品英文名": "C",
@@ -453,12 +455,27 @@ if gen_invoice:
     else:
         with st.spinner("正在生成发票文件..."):
             try:
-                df = pd.read_excel(file_invoice)
+                # 关键修复：使用 header=1 表示第2行作为列名（0开始索引）
+                df = pd.read_excel(file_invoice, header=1)
+                
+                # 清理列名：去掉 (*)、<br> 等特殊字符
+                df.columns = df.columns.str.replace(r'\(\*\)', '', regex=True).str.strip()
+                df.columns = df.columns.str.replace(r'<br>', '', regex=True).str.strip()
+                df.columns = df.columns.str.replace(r'\(USD\)', '', regex=True).str.strip()
+                
+                # 重命名列：将 "尺寸CM(长)" 等映射到 "尺寸CM"
+                # 但这里我们保留原始列名，因为数据中已经有"尺寸CM"列了
+                # 实际上数据中第21-23列是 长、宽、高，但这是子表头，实际数据在第20列"尺寸CM"中
+                # 从数据看，"尺寸CM"列在第20列（T列）
+                
             except Exception as e:
                 st.error(f"读取Excel文件失败：{str(e)}")
                 st.stop()
             
-            # 检查必要的列是否存在
+            # 显示实际列名，方便调试
+            st.info(f"读取到的列名：{', '.join(df.columns.tolist())}")
+            
+            # 检查必要的列是否存在（使用清理后的列名）
             required_cols = ["跟踪号/FBA", "产品中文名", "产品英文名", "产品材质", "用途", "海关编码", 
                             "产品品牌", "品牌类型", "型号", "产品数量", "申报单价", "申报总价", 
                             "采购单价", "采购总货值", "件数CTN", "尺寸CM", "总体积", 
