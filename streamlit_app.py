@@ -383,7 +383,7 @@ if adjust_btn:
 # 分割线
 st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
-# ===================== 模块3：FBA分单生成（正确格式最终版） =====================
+# ===================== 模块3：FBA分单生成（按FBA号命名最终版） =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.subheader("3. FBA分单文件批量生成")
 file_split = st.file_uploader("上传数据源Excel", type=["xlsx","xls"], key="split_file")
@@ -394,8 +394,8 @@ if gen_split:
     if not file_split:
         st.error("请上传数据源Excel文件")
     else:
-        with st.spinner("读取表格并生成标准分单..."):
-            # 1. 正确解析2行合并表头，读取数据源
+        with st.spinner("读取表格并按FBA号生成分单..."):
+            # 1. 读取数据源，解析2行合并表头
             df_raw = pd.read_excel(file_split, header=None)
             # 第2行(index=1)为主表头，第3行(index=2)为子表头
             main_header = df_raw.iloc[1].fillna("").astype(str).str.strip()
@@ -417,6 +417,7 @@ if gen_split:
             if group_key not in data_df.columns:
                 st.error(f"表格未识别到【{group_key}】列，请检查表头")
                 st.stop()
+            # 按FBA号分组，保留所有有效数据
             group_list = data_df.groupby(group_key)
 
             tmp_dir = tempfile.TemporaryDirectory()
@@ -425,10 +426,13 @@ if gen_split:
             # 今日日期，格式匹配模板
             today = datetime.now().strftime("%Y-%m-%d").replace("-0", "-")
 
-            # 3. 遍历每个FBA分组，生成标准文件
+            # 3. 遍历每个FBA分组，按FBA号命名文件
             for fba_val, sub_df in group_list:
                 if pd.isna(fba_val) or str(fba_val).strip() == "":
                     continue
+                # 文件名按FBA号命名，替换非法字符（避免Windows文件名错误）
+                fba_clean = str(fba_val).strip().replace("/", "_").replace("\\", "_").replace(":", "_").replace("*", "_").replace("?", "_").replace("\"", "_").replace("<", "_").replace(">", "_").replace("|", "_")
+                file_name = f"{fba_clean}.xlsx"
                 # 加载模板（上传的源文件）
                 wb = load_workbook(file_split)
                 ws = wb.active
@@ -444,12 +448,11 @@ if gen_split:
                 wb.calculation.calcMode = "manual"
 
                 # 4. 彻底清空原有数据（解决重复问题）
-                # 清空第4行及以下的所有数据列，不留残留
                 for r in range(4, max_r + 1):
                     for c in range(2, max_c + 1):
                         ws.cell(r, c, None)
 
-                # 5. 批量填充固定字段（100%匹配正确模板列号，无错位）
+                # 5. 批量填充固定字段（100%匹配模板列号）
                 start_write_row = 4
                 # 产品分类 H列(8) = CPSC
                 for r in range(start_write_row, max_r + 1):
@@ -466,28 +469,27 @@ if gen_split:
                 # 外箱分货标 AD列(30) = A1
                 for r in range(start_write_row, max_r + 1):
                     ws.cell(r, 30, "A1")
-                # 跟踪号/FBA AA列(27) = 当前分组FBA号
+                # 跟踪号/FBA AA列(27) = 当前FBA号
                 for r in range(start_write_row, max_r + 1):
                     ws.cell(r, 27, fba_val)
 
-                # 6. 写入当前分组明细（严格按列对应，无乱码）
+                # 6. 写入当前FBA的明细数据
                 row_data_arr = sub_df.values.tolist()
-                for idx, line in enumerate(row_data_arr):
-                    write_r = start_write_row + idx
+                for data_idx, line in enumerate(row_data_arr):
+                    write_r = start_write_row + data_idx
                     if write_r > max_r:
                         break
                     # 按列顺序写入，严格对应模板列位置
                     for col_idx, cell_val in enumerate(line):
                         ws.cell(write_r, col_idx + 1, cell_val)
 
-                # 7. 保存文件，以FBA号命名
-                file_name = f"{fba_val}.xlsx"
+                # 7. 保存文件
                 full_save_path = os.path.join(tmp_root, file_name)
                 wb.save(full_save_path)
                 wb.close()
                 output_files.append(full_save_path)
 
-            # 8. 最高压缩等级打包ZIP，极限减小体积
+            # 8. 最高压缩等级打包ZIP，所有文件按FBA号命名
             if len(output_files) > 0:
                 zip_buffer = BytesIO()
                 zip_name = "FBA分单文件.zip"
@@ -497,16 +499,16 @@ if gen_split:
                 zip_buffer.seek(0)
                 # 下载按钮
                 st.download_button(
-                    label="点击下载压缩包",
+                    label="点击下载分单压缩包",
                     data=zip_buffer,
                     file_name=zip_name,
                     mime="application/zip",
                     key="dl_fba_split"
                 )
-                st.success(f"✅ 生成完成，共{len(output_files)}个独立文件，已高压缩处理")
+                st.success(f"✅ 生成完成，共{len(output_files)}个独立文件，均按FBA号命名，已高压缩处理")
             else:
                 st.warning("无有效FBA数据，未生成文件")
             tmp_dir.cleanup()
 
 # 底部说明
-st.markdown("<p style='color:#666; font-size:13px;'>说明：自动合并第2、3行表头，按【跟踪号/FBA】分单；自动填充CPSC、套、当日PO日期、箱号-、分货标A1；文件极致压缩，无冗余打印</p>", unsafe_allow_html=True)
+st.markdown("<p style='color:#666; font-size:13px;'>说明：自动合并第2、3行表头，按【跟踪号/FBA】分单，文件直接按FBA号命名；自动填充CPSC、套、当日PO日期、箱号-、分货标A1；文件极致压缩，无冗余打印</p>", unsafe_allow_html=True)
