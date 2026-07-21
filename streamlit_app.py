@@ -408,8 +408,9 @@ with col2:
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# 获取今日日期
-today_str = datetime.now().strftime("%Y-%-m-%-d")
+# 获取今日日期（兼容各平台）
+today = datetime.now()
+today_str = f"{today.year}-{today.month}-{today.day}"
 
 # 模板列映射（源数据列名 → 模板列字母）
 INVOICE_COL_MAP = {
@@ -478,9 +479,9 @@ if gen_invoice:
                 # 数据从第4行开始（第2-3行是合并表头）
                 data_start_row = 4
                 
-                # 清空旧数据（从第4行开始）
-                for r in range(data_start_row, 100):  # 清空到100行，足够覆盖
-                    for c in range(1, 32):  # A到AE列
+                # 清空旧数据（从第4行开始到100行）
+                for r in range(data_start_row, 101):
+                    for c in range(1, 32):
                         ws.cell(row=r, column=c, value=None)
                 
                 # 获取当前组的行数据
@@ -498,22 +499,22 @@ if gen_invoice:
                     # 处理尺寸CM拆分（长宽高）
                     if "尺寸CM" in row_data and pd.notna(row_data["尺寸CM"]):
                         dim_str = str(row_data["尺寸CM"]).strip()
-                        # 尝试按空格或乘号拆分
+                        # 按空格或x或*或×拆分
                         import re
                         dims = re.split(r'[ x*×\s]+', dim_str)
-                        dims = [d for d in dims if d.strip() and d.strip().isdigit()]
+                        dims = [d for d in dims if d.strip() and d.strip().replace('.', '').isdigit()]
                         if len(dims) >= 1:
-                            ws[f"U{r}"] = float(dims[0])  # 长
+                            ws[f"U{r}"] = float(dims[0])
                         if len(dims) >= 2:
-                            ws[f"V{r}"] = float(dims[1])  # 宽
+                            ws[f"V{r}"] = float(dims[1])
                         if len(dims) >= 3:
-                            ws[f"W{r}"] = float(dims[2])  # 高
+                            ws[f"W{r}"] = float(dims[2])
                     
                     # 填充固定值
                     for col_letter, value in INVOICE_FIXED_VALUES.items():
                         ws[f"{col_letter}{r}"] = value
                     
-                    # 填充PO创建日期（今日日期）
+                    # 填充PO创建日期（今日日期）-> 模板中是AC列
                     ws[f"AC{r}"] = today_str
                 
                 # 保存文件
