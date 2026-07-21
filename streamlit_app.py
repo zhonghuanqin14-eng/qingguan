@@ -444,24 +444,6 @@ INVOICE_FIXED_VALUES = {
     "AE": "A1",
 }
 
-# 检查 session_state 中是否有准备好的数据
-if "invoice_zip_data" in st.session_state and "invoice_zip_name" in st.session_state:
-    st.success(f"✅ 已生成文件: {st.session_state.invoice_zip_name}")
-    st.download_button(
-        label="📥 点击下载发票压缩包",
-        data=st.session_state.invoice_zip_data,
-        file_name=st.session_state.invoice_zip_name,
-        mime="application/zip",
-        key="dl_invoice_from_session",
-        use_container_width=True,
-    )
-    # 添加重新生成按钮
-    if st.button("🔄 重新生成"):
-        for key in ["invoice_zip_data", "invoice_zip_name"]:
-            if key in st.session_state:
-                del st.session_state[key]
-        st.rerun()
-
 # 发票填充逻辑
 if gen_invoice:
     if not file_invoice:
@@ -602,37 +584,39 @@ if gen_invoice:
             zip_name = f"发票模板填充_{today_str}.zip"
             zip_path = os.path.join(tmp_dir, zip_name)
             
-            with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+            with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
                 for fp in file_paths:
                     zf.write(fp, os.path.basename(fp))
-            
-            # 读取ZIP文件到内存
-            with open(zip_path, "rb") as f:
-                zip_data = f.read()
-            
-            # 清理临时文件
-            shutil.rmtree(tmp_dir, ignore_errors=True)
             
             progress_bar.progress(100)
             status_text.text(f"✅ 完成！共生成 {total_groups} 个文件")
             
-            # 保存到 session_state
-            st.session_state.invoice_zip_data = zip_data
-            st.session_state.invoice_zip_name = zip_name
+            # 读取文件大小
+            file_size = os.path.getsize(zip_path)
+            file_size_mb = file_size / 1024 / 1024
             
-            # 显示文件信息
-            file_size_mb = len(zip_data) / 1024 / 1024
             st.success(f"✅ 成功生成 {total_groups} 个文件，压缩包大小: {file_size_mb:.2f} MB")
             
-            # 显示下载按钮（直接从 session_state 读取）
-            st.download_button(
-                label="📥 点击下载发票压缩包",
-                data=st.session_state.invoice_zip_data,
-                file_name=st.session_state.invoice_zip_name,
-                mime="application/zip",
-                key="dl_invoice_final",
-                use_container_width=True,
-            )
+            # 使用 st.download_button 直接读取文件
+            with open(zip_path, "rb") as f:
+                st.download_button(
+                    label="📥 点击下载发票压缩包",
+                    data=f,
+                    file_name=zip_name,
+                    mime="application/zip",
+                    key="dl_invoice_final",
+                    use_container_width=True,
+                )
+            
+            # 清理临时文件（注意：下载按钮读取完成后，文件可能已被读取）
+            # 我们延迟清理，在 session 结束时清理
+            import atexit
+            def cleanup():
+                try:
+                    shutil.rmtree(tmp_dir, ignore_errors=True)
+                except:
+                    pass
+            atexit.register(cleanup)
             
             # 清理进度条
             progress_bar.empty()
