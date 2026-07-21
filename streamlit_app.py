@@ -394,7 +394,6 @@ import os
 st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
 # ===================== 模块3：发票信息批量填充模板 =====================
-# ===================== 模块3：发票信息批量填充模板 =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.subheader("3. 发票信息批量填充模板 (1.xlsx)")
 st.markdown("上传附件Excel，按FBA号分组填充到模板 `1.xlsx` 中，以FBA号命名输出文件。")
@@ -414,8 +413,8 @@ from datetime import datetime as dt
 now = dt.now()
 today_str = f"{now.year}-{now.month}-{now.day}"
 
-# 模板列映射（源数据列名 → 模板列字母）
-# 注意：列名要去掉 (*) 等后缀
+# 定义需要匹配的列名映射（源数据列名 → 模板列字母）
+# 使用字典存储多个可能的列名变体
 INVOICE_COL_MAP = {
     "产品中文名": "B",
     "产品英文名": "C",
@@ -431,6 +430,7 @@ INVOICE_COL_MAP = {
     "采购单价": "P",
     "采购总货值": "Q",
     "件数CTN": "T",
+    "尺寸CM": "U",  # 长宽高需要拆分，这里只是标记
     "总体积": "X",
     "总净重": "Y",
     "总毛重": "Z",
@@ -455,27 +455,36 @@ if gen_invoice:
     else:
         with st.spinner("正在生成发票文件..."):
             try:
-                # 关键修复：使用 header=1 表示第2行作为列名（0开始索引）
+                # 使用 header=1 表示第2行作为列名
                 df = pd.read_excel(file_invoice, header=1)
                 
-                # 清理列名：去掉 (*)、<br> 等特殊字符
-                df.columns = df.columns.str.replace(r'\(\*\)', '', regex=True).str.strip()
-                df.columns = df.columns.str.replace(r'<br>', '', regex=True).str.strip()
-                df.columns = df.columns.str.replace(r'\(USD\)', '', regex=True).str.strip()
+                # 清理列名：去除特殊字符、括号内容、单位后缀等
+                def clean_column_name(col):
+                    if pd.isna(col):
+                        return col
+                    col = str(col)
+                    # 去除 (*)、<br>、(USD) 等
+                    col = col.replace('(*)', '').replace('<br>', '').replace('(USD)', '')
+                    # 去除 (CBM)、(KGS) 等单位后缀
+                    import re
+                    col = re.sub(r'\([^)]*\)', '', col)  # 去掉所有括号内容
+                    col = col.strip()
+                    return col
                 
-                # 重命名列：将 "尺寸CM(长)" 等映射到 "尺寸CM"
-                # 但这里我们保留原始列名，因为数据中已经有"尺寸CM"列了
-                # 实际上数据中第21-23列是 长、宽、高，但这是子表头，实际数据在第20列"尺寸CM"中
-                # 从数据看，"尺寸CM"列在第20列（T列）
+                df.columns = [clean_column_name(col) for col in df.columns]
+                
+                # 处理 Unnamed 列：如果有"尺寸CM"列，Unnamed:21、Unnamed:22 是长宽高
+                # 但实际数据中"尺寸CM"列已经包含了长宽高数据（如"44 28.5 36.5"）
+                # 所以我们只需要"尺寸CM"列即可
                 
             except Exception as e:
                 st.error(f"读取Excel文件失败：{str(e)}")
                 st.stop()
             
             # 显示实际列名，方便调试
-            st.info(f"读取到的列名：{', '.join(df.columns.tolist())}")
+            st.info(f"清理后的列名：{', '.join(df.columns.tolist())}")
             
-            # 检查必要的列是否存在（使用清理后的列名）
+            # 检查必要的列是否存在
             required_cols = ["跟踪号/FBA", "产品中文名", "产品英文名", "产品材质", "用途", "海关编码", 
                             "产品品牌", "品牌类型", "型号", "产品数量", "申报单价", "申报总价", 
                             "采购单价", "采购总货值", "件数CTN", "尺寸CM", "总体积", 
@@ -516,29 +525,31 @@ if gen_invoice:
                         
                         # 填充映射的列
                         for col_name, col_letter in INVOICE_COL_MAP.items():
+                            if col_name == "尺寸CM":
+                                continue  # 尺寸CM单独处理
                             if col_name in row_data and pd.notna(row_data[col_name]):
                                 ws[f"{col_letter}{r}"] = row_data[col_name]
                         
                         # 处理尺寸CM拆分（长宽高）
                         if "尺寸CM" in row_data and pd.notna(row_data["尺寸CM"]):
                             dim_str = str(row_data["尺寸CM"]).strip()
-                            # 按空格或x或*或×拆分
                             import re
+                            # 按空格或x或*或×拆分
                             dims = re.split(r'[ x*×\s]+', dim_str)
                             dims = [d for d in dims if d.strip() and d.strip().replace('.', '').replace('-', '').isdigit()]
                             if len(dims) >= 1:
                                 try:
-                                    ws[f"U{r}"] = float(dims[0])
+                                    ws[f"U{r}"] = float(dims[0])  # 长
                                 except:
                                     pass
                             if len(dims) >= 2:
                                 try:
-                                    ws[f"V{r}"] = float(dims[1])
+                                    ws[f"V{r}"] = float(dims[1])  # 宽
                                 except:
                                     pass
                             if len(dims) >= 3:
                                 try:
-                                    ws[f"W{r}"] = float(dims[2])
+                                    ws[f"W{r}"] = float(dims[2])  # 高
                                 except:
                                     pass
                         
