@@ -444,6 +444,24 @@ INVOICE_FIXED_VALUES = {
     "AE": "A1",
 }
 
+# 检查 session_state 中是否有准备好的数据
+if "invoice_zip_data" in st.session_state and "invoice_zip_name" in st.session_state:
+    st.success(f"✅ 已生成文件: {st.session_state.invoice_zip_name}")
+    st.download_button(
+        label="📥 点击下载发票压缩包",
+        data=st.session_state.invoice_zip_data,
+        file_name=st.session_state.invoice_zip_name,
+        mime="application/zip",
+        key="dl_invoice_from_session",
+        use_container_width=True,
+    )
+    # 添加重新生成按钮
+    if st.button("🔄 重新生成"):
+        for key in ["invoice_zip_data", "invoice_zip_name"]:
+            if key in st.session_state:
+                del st.session_state[key]
+        st.rerun()
+
 # 发票填充逻辑
 if gen_invoice:
     if not file_invoice:
@@ -493,6 +511,7 @@ if gen_invoice:
             
             # 使用临时目录保存文件
             import tempfile
+            import shutil
             tmp_dir = tempfile.mkdtemp()
             file_paths = []
             
@@ -580,8 +599,8 @@ if gen_invoice:
             status_text.text("📦 正在打包ZIP文件...")
             
             # 创建ZIP压缩包
-            import shutil
-            zip_path = os.path.join(tmp_dir, f"发票模板填充_{today_str}.zip")
+            zip_name = f"发票模板填充_{today_str}.zip"
+            zip_path = os.path.join(tmp_dir, zip_name)
             
             with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
                 for fp in file_paths:
@@ -597,16 +616,21 @@ if gen_invoice:
             progress_bar.progress(100)
             status_text.text(f"✅ 完成！共生成 {total_groups} 个文件")
             
-            # 显示下载按钮
+            # 保存到 session_state
+            st.session_state.invoice_zip_data = zip_data
+            st.session_state.invoice_zip_name = zip_name
+            
+            # 显示文件信息
             file_size_mb = len(zip_data) / 1024 / 1024
             st.success(f"✅ 成功生成 {total_groups} 个文件，压缩包大小: {file_size_mb:.2f} MB")
             
+            # 显示下载按钮（直接从 session_state 读取）
             st.download_button(
                 label="📥 点击下载发票压缩包",
-                data=zip_data,  # 直接传递 bytes 数据
-                file_name=f"发票模板填充_{today_str}.zip",
+                data=st.session_state.invoice_zip_data,
+                file_name=st.session_state.invoice_zip_name,
                 mime="application/zip",
-                key="dl_invoice_auto",
+                key="dl_invoice_final",
                 use_container_width=True,
             )
             
