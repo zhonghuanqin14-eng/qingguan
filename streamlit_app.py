@@ -404,6 +404,15 @@ with col1:
     file_invoice = st.file_uploader("上传数据源Excel（如附件.xlsx）", type=["xlsx","xls"], key="invoice_file")
 with col2:
     st.markdown('<div style="margin-top:28px;"></div>', unsafe_allow_html=True)
+    
+    # 清除缓存的按钮
+    if st.button("🗑️ 清除缓存", key="clear_cache"):
+        for key in list(st.session_state.keys()):
+            if key.startswith("invoice_"):
+                del st.session_state[key]
+        st.success("缓存已清除")
+        st.rerun()
+    
     gen_invoice = st.button("生成并下载发票文件", key="gen_invoice", type="primary")
 
 st.markdown('</div>', unsafe_allow_html=True)
@@ -413,7 +422,7 @@ from datetime import datetime as dt
 now = dt.now()
 today_str = f"{now.year}-{now.month}-{now.day}"
 
-# 定义需要匹配的列名映射
+# 定义需要匹配的列名映射（源数据列名 → 模板列字母）
 INVOICE_COL_MAP = {
     "产品中文名": "B",
     "产品英文名": "C",
@@ -455,7 +464,7 @@ if "invoice_zip_path" in st.session_state and "invoice_zip_name" in st.session_s
         
         st.success(f"✅ 文件已生成: {zip_name} ({file_size_mb:.2f} MB)")
         
-        # 使用 HTML 链接直接下载（绕过 Streamlit 的缓冲）
+        # 使用 HTML 链接下载
         import base64
         with open(zip_path, "rb") as f:
             data = f.read()
@@ -463,20 +472,7 @@ if "invoice_zip_path" in st.session_state and "invoice_zip_name" in st.session_s
         b64 = base64.b64encode(data).decode()
         href = f'<a href="data:application/zip;base64,{b64}" download="{zip_name}" style="display:inline-block;padding:10px 24px;background-color:#2563eb;color:white;text-decoration:none;border-radius:8px;font-weight:600;font-size:16px;">📥 点击下载 ZIP 文件</a>'
         st.markdown(href, unsafe_allow_html=True)
-        
-        # 重新生成按钮
-        if st.button("🔄 重新生成", key="regenerate_invoice"):
-            # 清理旧文件
-            try:
-                os.remove(zip_path)
-            except:
-                pass
-            for key in ["invoice_zip_path", "invoice_zip_name"]:
-                if key in st.session_state:
-                    del st.session_state[key]
-            st.rerun()
-        
-        # 不自动清理，让用户手动清理或重新生成时清理
+        st.info("💡 如果下载按钮无效，请右键链接选择「另存为」")
     else:
         st.warning("文件已丢失，请重新生成")
         for key in ["invoice_zip_path", "invoice_zip_name"]:
@@ -491,6 +487,11 @@ if gen_invoice:
     elif not os.path.exists(TEMPLATE_INVOICE_FILE):
         st.error(f"模板文件 {TEMPLATE_INVOICE_FILE} 缺失，请上传至仓库根目录")
     else:
+        # 先清除之前的缓存
+        for key in list(st.session_state.keys()):
+            if key.startswith("invoice_"):
+                del st.session_state[key]
+        
         # 使用进度条
         progress_bar = st.progress(0)
         status_text = st.empty()
@@ -508,54 +509,82 @@ if gen_invoice:
             with open(input_file_path, "wb") as f:
                 f.write(file_invoice.getvalue())
             
-            # 用 pandas 读取
-            df = pd.read_excel(input_file_path, header=1)
+            # 用 pandas 读取（使用 openpyxl 引擎）
+            df = pd.read_excel(input_file_path, header=1, engine='openpyxl')
             
-            # 清理列名
+            # 显示原始列名用于调试
+            st.write("原始列名:", df.columns.tolist())
+            
+            # 清理列名（去除括号和特殊字符）
             def clean_column_name(col):
                 if pd.isna(col):
                     return col
                 col = str(col)
                 import re
+                # 去除所有括号及其内容
                 col = re.sub(r'[（(][^）)]*[）)]', '', col)
                 col = col.replace('(*)', '').replace('<br>', '').replace('(USD)', '')
-                col = col.replace('(CBM)', '').replace('(KGS)', '')
+                col = col.replace('(CBM)', '').replace('(KGS)', '').replace('(个)', '')
+                col = col.replace('（个）', '').replace('（*）', '')
                 return col.strip()
             
             df.columns = [clean_column_name(col) for col in df.columns]
             
-            # 检查必要的列是否存在
+            # 显示清理后的列名
+            st.write("清理后列名:", df.columns.tolist())
+            
+            # 检查必要的列是否存在（使用更宽松的匹配）
             required_cols = ["跟踪号/FBA", "产品中文名", "产品英文名", "产品材质", "用途", "海关编码", 
                             "产品品牌", "品牌类型", "型号", "产品数量", "申报单价", "申报总价", 
                             "采购单价", "采购总货值", "件数CTN", "尺寸CM", "总体积", 
                             "总净重", "总毛重", "内部追踪号/PO"]
             
-            # 查找列名
+            # 查找列名映射
             col_mapping = {}
             for req_col in required_cols:
                 found = False
                 for col in df.columns:
-                    if req_col in col or col in req_col:
+                    # 完全匹配或部分匹配
+                    if req_col == col or req_col in col or col in req_col:
                         col_mapping[req_col] = col
                         found = True
                         break
+                if not found:
+                    # 更宽松的匹配：去掉特殊字符
+                    req_clean = req_col.replace("/", "").replace("-", "").replace(" ", "")
+                    for col in df.columns:
+                        col_clean = col.replace("/", "").replace("-", "").replace(" ", "")
+                        if req_clean == col_clean or req_clean in col_clean or col_clean in req_clean:
+                            col_mapping[req_col] = col
+                            found = True
+                            break
                 if not found:
                     col_mapping[req_col] = None
             
             missing_cols = [col for col, mapped in col_mapping.items() if mapped is None]
             if missing_cols:
                 st.error(f"数据源缺少必要列：{', '.join(missing_cols)}")
+                st.error(f"当前所有列名：{', '.join(df.columns.tolist())}")
                 st.stop()
             
             # 重命名列
             rename_dict = {col_mapping[col]: col for col in required_cols if col_mapping[col] is not None}
             df = df.rename(columns=rename_dict)
             
+            # 检查是否有数据
+            if len(df) == 0:
+                st.error("数据文件为空，请检查")
+                st.stop()
+            
             # 按FBA号分组
             groups = df.groupby("跟踪号/FBA")
             total_groups = len(groups)
             
-            status_text.text(f"📊 找到 {total_groups} 个FBA号，开始生成文件...")
+            if total_groups == 0:
+                st.error("没有找到有效的FBA号")
+                st.stop()
+            
+            status_text.text(f"📊 找到 {total_groups} 个FBA号，共 {len(df)} 行数据，开始生成文件...")
             progress_bar.progress(5)
             
             # 输出目录
@@ -564,36 +593,37 @@ if gen_invoice:
             
             file_paths = []
             
-            # 使用更快的处理方式：批量生成
+            # 处理每个FBA组
             for idx, (fba_id, group) in enumerate(groups):
                 progress = 5 + int((idx + 1) / total_groups * 90)
                 progress_bar.progress(progress)
                 status_text.text(f"🔄 正在处理: {fba_id} ({idx+1}/{total_groups})")
                 
-                # 加载模板（使用 data_only=True 和 keep_links=False 加速）
+                # 加载模板
                 wb = load_workbook(TEMPLATE_INVOICE_FILE, data_only=True, keep_links=False)
                 ws = wb.active
                 
                 data_start_row = 4
                 
-                # 清空旧数据（只清空有数据的单元格，提升速度）
+                # 清空旧数据（第4行到第100行）
                 for r in range(data_start_row, 101):
                     for c in range(1, 32):
                         ws.cell(row=r, column=c, value=None)
                 
                 group_rows = group.to_dict('records')
                 
-                # 批量写入数据
+                # 写入数据
                 for row_idx, row_data in enumerate(group_rows):
                     r = data_start_row + row_idx
                     
+                    # 填充映射的列
                     for col_name, col_letter in INVOICE_COL_MAP.items():
                         if col_name == "尺寸CM":
                             continue
                         if col_name in row_data and pd.notna(row_data[col_name]):
                             ws[f"{col_letter}{r}"] = row_data[col_name]
                     
-                    # 处理尺寸CM
+                    # 处理尺寸CM拆分（如果有）
                     if "尺寸CM" in row_data and pd.notna(row_data["尺寸CM"]):
                         dim_str = str(row_data["尺寸CM"]).strip()
                         import re
@@ -615,12 +645,15 @@ if gen_invoice:
                             except:
                                 pass
                     
+                    # 填充固定值
                     for col_letter, value in INVOICE_FIXED_VALUES.items():
                         ws[f"{col_letter}{r}"] = value
                     
+                    # 填充PO创建日期
                     ws[f"AC{r}"] = today_str
                 
-                safe_fba_id = str(fba_id).replace("/", "_").replace("\\", "_")
+                # 保存文件
+                safe_fba_id = str(fba_id).replace("/", "_").replace("\\", "_").replace(":", "_")
                 save_path = os.path.join(output_dir, f"{safe_fba_id}.xlsx")
                 wb.save(save_path)
                 file_paths.append(save_path)
@@ -629,7 +662,7 @@ if gen_invoice:
             progress_bar.progress(95)
             status_text.text("📦 正在打包ZIP文件...")
             
-            # 快速打包（不压缩）
+            # 打包ZIP
             zip_name = f"发票模板填充_{today_str}.zip"
             zip_path = os.path.join(tmp_dir, zip_name)
             
@@ -649,7 +682,7 @@ if gen_invoice:
             
             st.success(f"✅ 成功生成 {total_groups} 个文件，压缩包大小: {file_size_mb:.2f} MB")
             
-            # 立即提供下载（使用 HTML 方式）
+            # 提供下载链接
             import base64
             with open(zip_path, "rb") as f:
                 data = f.read()
@@ -657,7 +690,6 @@ if gen_invoice:
             b64 = base64.b64encode(data).decode()
             href = f'<a href="data:application/zip;base64,{b64}" download="{zip_name}" style="display:inline-block;padding:10px 24px;background-color:#2563eb;color:white;text-decoration:none;border-radius:8px;font-weight:600;font-size:16px;">📥 点击下载 ZIP 文件</a>'
             st.markdown(href, unsafe_allow_html=True)
-            
             st.info("💡 如果下载按钮无效，请右键链接选择「另存为」")
             
             # 清理进度条
@@ -670,3 +702,9 @@ if gen_invoice:
             st.error(f"处理过程中发生错误：{str(e)}")
             import traceback
             st.code(traceback.format_exc())
+            
+            # 清理临时文件
+            try:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+            except:
+                pass
