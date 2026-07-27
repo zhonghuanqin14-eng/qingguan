@@ -458,8 +458,60 @@ if gen_invoice:
         try:
             status_text.text("📖 正在读取数据文件...")
             
-            # 使用 header=1 表示第2行作为列名
-            df = pd.read_excel(file_invoice, header=1)
+            # 尝试多种方式读取文件
+            df = None
+            error_messages = []
+            
+            # 方法1：尝试用 pandas 直接读取
+            try:
+                # 先把上传的文件保存到临时文件
+                import tempfile
+                tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
+                tmp_file.write(file_invoice.getvalue())
+                tmp_file.close()
+                
+                # 用 openpyxl 检查是否是有效文件
+                try:
+                    from openpyxl import load_workbook as test_load
+                    test_wb = test_load(tmp_file.name, data_only=True)
+                    test_wb.close()
+                    # 文件有效，用 pandas 读取
+                    df = pd.read_excel(tmp_file.name, header=1)
+                except Exception as e:
+                    error_messages.append(f"openpyxl 读取失败: {str(e)}")
+                    # 尝试用 pandas 的 engine='openpyxl'
+                    try:
+                        df = pd.read_excel(tmp_file.name, header=1, engine='openpyxl')
+                    except Exception as e2:
+                        error_messages.append(f"pandas engine=openpyxl 读取失败: {str(e2)}")
+                        # 尝试忽略 header
+                        try:
+                            df = pd.read_excel(tmp_file.name, header=None)
+                            st.warning("使用无表头模式读取，请检查数据格式")
+                        except Exception as e3:
+                            error_messages.append(f"无表头模式读取失败: {str(e3)}")
+                
+                # 清理临时文件
+                import os
+                try:
+                    os.unlink(tmp_file.name)
+                except:
+                    pass
+                
+            except Exception as e:
+                error_messages.append(f"文件读取失败: {str(e)}")
+            
+            if df is None:
+                st.error("无法读取文件，请检查文件格式是否正确")
+                st.error("\n".join(error_messages))
+                st.stop()
+            
+            # 如果读取的是无表头模式，尝试将第一行作为表头
+            if df.columns[0] == 0 or df.columns[0] is None or str(df.columns[0]).isdigit():
+                # 保存第一行作为表头
+                header_row = df.iloc[0].tolist()
+                df = df.iloc[1:].reset_index(drop=True)
+                df.columns = [str(h) if pd.notna(h) else f"Column_{i}" for i, h in enumerate(header_row)]
             
             # 清理列名
             def clean_column_name(col):
@@ -469,9 +521,13 @@ if gen_invoice:
                 import re
                 col = re.sub(r'[（(][^）)]*[）)]', '', col)
                 col = col.replace('(*)', '').replace('<br>', '').replace('(USD)', '')
+                col = col.replace('(CBM)', '').replace('(KGS)', '')
                 return col.strip()
             
             df.columns = [clean_column_name(col) for col in df.columns]
+            
+            # 显示清理后的列名
+            st.info(f"读取到的列名：{', '.join(df.columns.tolist())}")
             
             # 检查必要的列是否存在
             required_cols = ["跟踪号/FBA", "产品中文名", "产品英文名", "产品材质", "用途", "海关编码", 
@@ -479,10 +535,34 @@ if gen_invoice:
                             "采购单价", "采购总货值", "件数CTN", "尺寸CM", "总体积", 
                             "总净重", "总毛重", "内部追踪号/PO"]
             
-            missing_cols = [col for col in required_cols if col not in df.columns]
+            # 查找可能的列名变体
+            col_mapping = {}
+            for req_col in required_cols:
+                found = False
+                for col in df.columns:
+                    if req_col in col or col in req_col:
+                        col_mapping[req_col] = col
+                        found = True
+                        break
+                if not found:
+                    # 尝试更宽松的匹配
+                    for col in df.columns:
+                        if req_col.replace("/", "").replace("-", "") in col.replace("/", "").replace("-", ""):
+                            col_mapping[req_col] = col
+                            found = True
+                            break
+                if not found:
+                    col_mapping[req_col] = None
+            
+            missing_cols = [col for col, mapped in col_mapping.items() if mapped is None]
             if missing_cols:
                 st.error(f"数据源缺少必要列：{', '.join(missing_cols)}")
+                st.error(f"当前所有列名：{', '.join(df.columns.tolist())}")
                 st.stop()
+            
+            # 重命名列以匹配映射
+            rename_dict = {col_mapping[col]: col for col in required_cols if col_mapping[col] is not None}
+            df = df.rename(columns=rename_dict)
             
             # 按FBA号分组
             groups = df.groupby("跟踪号/FBA")
@@ -497,24 +577,20 @@ if gen_invoice:
             tmp_dir = tempfile.mkdtemp()
             file_paths = []
             
-            # 加载模板（使用 data_only=True 避免图片问题）
-            template_wb = load_workbook(TEMPLATE_INVOICE_FILE, data_only=True)
-            
             for idx, (fba_id, group) in enumerate(groups):
                 # 更新进度
                 progress = 5 + int((idx + 1) / total_groups * 90)
                 progress_bar.progress(progress)
                 status_text.text(f"🔄 正在处理: {fba_id} ({idx+1}/{total_groups})")
                 
-                # 使用 openpyxl 的 copy_worksheet 方法复制工作表
-                # 但更简单的方法是每次重新加载模板（速度稍慢但稳定）
-                wb = load_workbook(TEMPLATE_INVOICE_FILE, data_only=True)
+                # 每次重新加载模板（稳定但稍慢）
+                wb = load_workbook(TEMPLATE_INVOICE_FILE, data_only=True, keep_links=False)
                 ws = wb.active
                 
                 # 数据从第4行开始
                 data_start_row = 4
                 
-                # 清空旧数据（保留图片和格式）
+                # 清空旧数据
                 for r in range(data_start_row, 101):
                     for c in range(1, 32):
                         if ws.cell(row=r, column=c).value is not None:
@@ -570,9 +646,6 @@ if gen_invoice:
                 file_paths.append(save_path)
                 
                 wb.close()
-            
-            # 关闭模板
-            template_wb.close()
             
             progress_bar.progress(95)
             status_text.text("📦 正在打包ZIP文件...")
