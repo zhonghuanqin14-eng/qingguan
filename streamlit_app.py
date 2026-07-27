@@ -66,9 +66,6 @@ CUT_MAP = {
     "weight_head":"Gross weight","vol_head":"Volume"
 }
 
-# 模板文件名（和你上传的完全一致）
-TEMPLATE_FILE = "AL0-SBU6B5D6EZU6S.xlsx"
-TEMPLATE_INVOICE_FILE = "1.xlsx"  # 模板文件名
 # ===================== 页面标题 =====================
 st.markdown('<div class="main-title">📦 单证批量处理工具</div>', unsafe_allow_html=True)
 
@@ -392,19 +389,19 @@ import os
 import shutil
 import re
 
-# 图片压缩全局配置（减小文件体积，解决下载慢问题）
-IMG_MAX_W = 110    # 图片最大宽度
-IMG_MAX_H = 110    # 图片最大高度
-IMG_QUALITY = 65   # 压缩画质，数值越小体积越小
+# 图片压缩配置（仅优化体积，不删除原有图片）
+IMG_MAX_W = 110    # 图片最大宽度，适配A列单元格
+IMG_MAX_H = 110    # 图片最大高度，适配A列单元格
+IMG_QUALITY = 70   # 压缩画质，平衡体积与清晰度
 
 # 分割线
 st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
-# ===================== 模块3：固定列批量填充（无分单，单文件输出） =====================
+# ===================== 模块3：纽酷发票填充 =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
-st.subheader("3. 清关单固定列批量填充")
-st.markdown("上传清关单Excel，自动填充指定固定列，所有数据保留在一个文件中，不拆分分单")
-st.info("✅ 固定填充规则：\n- 产品分类(*) H列 → 填充`CPSC`\n- 产品数量单位(*) M列 → 填充`套`\n- PO创建日期 AC列 → 填充今日日期\n- FBA箱号 AD列 → 填充`-`\n- 外箱分货标(*) AE列 → 填充`A1`")
+st.subheader("3. 发票填充")
+st.markdown("上传清关单Excel，仅填充【跟踪号/FBA】列有数据的行，空行完全保留不变，图片不丢失仅压缩优化")
+st.info("✅ 填充规则：仅FBA号非空行填充\n- 产品分类(*) H列 → `CPSC`\n- 产品数量单位(*) M列 → `套`\n- PO创建日期 AC列 → 今日日期\n- FBA箱号 AD列 → `-`\n- 外箱分货标(*) AE列 → `A1`")
 
 # 上传组件
 file_upload = st.file_uploader("上传清关单Excel（支持xls/xlsx）", type=["xlsx","xls"], key="fill_file")
@@ -424,32 +421,36 @@ FIXED_FILL = {
     31: "A1"         # AE列 外箱分货标(*)
 }
 
-# 图片压缩工具函数
-def compress_img_to_temp(src_img_obj, temp_dir):
-    """接收openpyxl图片对象，压缩后返回临时压缩图片路径"""
+# 图片压缩工具函数（仅压缩，不删除原图）
+def compress_image_optimize(img_obj, temp_dir):
+    """仅压缩优化图片体积，保留原图内容，返回压缩后图片路径"""
     try:
-        # 读取原图二进制
-        img_bytes = src_img._data()
-        tmp_input = tempfile.NamedTemporaryFile(delete=False, suffix=".png", dir=temp_dir)
-        tmp_input.write(img_bytes)
-        tmp_input.close()
+        # 读取原图二进制数据
+        img_bytes = img_obj._data()
+        # 临时输入文件
+        tmp_in = tempfile.NamedTemporaryFile(delete=False, suffix=".png", dir=temp_dir)
+        tmp_in.write(img_bytes)
+        tmp_in.close()
 
-        # 打开压缩
-        with PILImage.open(tmp_input.name) as pil_img:
+        # 打开图片进行压缩
+        with PILImage.open(tmp_in.name) as pil_img:
             # 透明通道转RGB，减少体积
             if pil_img.mode in ("RGBA", "LA"):
                 pil_img = pil.convert("RGB")
-            # 等比例缩放
+            # 等比例缩放，不拉伸变形
             pil_img.thumbnail((IMG_MAX_W, IMG_MAX_H), PILImage.Resampling.LANCZOS)
-            # 输出压缩jpg
+            # 输出压缩后的JPG
             tmp_out = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg", dir=temp_dir)
             pil_img.save(tmp_out.name, "JPEG", quality=IMG_QUALITY, optimize=True)
-        os.unlink(tmp_input.name)
+        
+        # 清理临时输入文件
+        os.unlink(tmp_in.name)
         return tmp_out.name
     except Exception as e:
+        st.warning(f"图片压缩失败：{str(e)}")
         return None
 
-# 填充核心逻辑
+# 核心填充逻辑
 if gen_btn:
     if not file_upload:
         st.error("请上传清关单Excel文件")
@@ -488,23 +489,73 @@ if gen_btn:
                 st.error("文件读取失败："+"\n".join(error_messages))
                 st.stop()
 
-            # 解析2、3行合并表头，确认数据起始行
+            # --------------------------
+            # 1. 解析表头，找到跟踪号/FBA列
+            # --------------------------
+            # 第2行(index=1)为主表头，第3行(index=2)为补充表头
             row2_header = df.iloc[1].fillna("").astype(str).str.strip()
             row3_header = df.iloc[2].fillna("").astype(str).str.strip()
+            
+            # 合并生成最终列名
             final_columns = []
             for h2, h3 in zip(row2_header, row3_header):
                 if h2 and h3:
                     final_columns.append(f"{h2}{h3}")
                 elif h2:
                     final_columns.append(h2)
-                else:
+                elif h3:
                     final_columns.append(h3)
+                else:
+                    final_columns.append(f"col_{len(final_columns)}")
+            
+            # 数据从第4行(index=3)开始
             data_df = df.iloc[3:].copy()
             data_df.columns = final_columns
             data_df.columns = data_df.columns.str.strip()
-            data_start_row = 4  # 数据从Excel第4行开始
 
-            # 加载原始文件作为模板
+            # 清理列名特殊字符，避免匹配失败
+            def clean_col(col):
+                if pd.isna(col):
+                    return col
+                col = str(col)
+                col = re.sub(r'[（(][^）)]*[）)]', '', col)
+                col = col.replace('(*)', '').replace('<br>', '').replace('(USD)', '').replace('(CBM)', '').replace('(KGS)', '')
+                return col.strip()
+            data_df.columns = [clean_col(col) for col in data_df.columns]
+
+            # 找到跟踪号/FBA列
+            group_col = "跟踪号/FBA"
+            fba_col_name = None
+            for c in data_df.columns:
+                if group_col in c or c in group_col:
+                    fba_col_name = c
+                    break
+            if fba_col_name is None:
+                st.error(f"表格中未找到【跟踪号/FBA】列，当前识别到的列名：{', '.join(data_df.columns.tolist())}")
+                st.stop()
+
+            # --------------------------
+            # 2. 定位FBA号非空的行（仅这些行填充）
+            # --------------------------
+            # 找到所有FBA号非空的行，记录Excel行号（数据从第4行开始）
+            fba_valid_rows = []
+            for row_idx, row_data in data_df.iterrows():
+                fba_val = row_data[fba_col_name]
+                if pd.notna(fba_val) and str(fba_val).strip() != "":
+                    # Excel行号 = 数据起始行(4) + 行索引
+                    excel_row = 4 + row_idx
+                    fba_valid_rows.append(excel_row)
+
+            if not fba_valid_rows:
+                st.warning("未找到【跟踪号/FBA】列有数据的行，未执行填充")
+                st.stop()
+
+            st.info(f"✅ 识别到 {len(fba_valid_rows)} 行FBA号非空，将仅对这些行执行填充")
+            progress_bar.progress(20)
+
+            # --------------------------
+            # 3. 加载模板，仅填充FBA有效行
+            # --------------------------
             file_upload.seek(0)
             wb = load_workbook(file_upload)
             ws = wb.active
@@ -519,47 +570,42 @@ if gen_btn:
             # 关闭公式自动计算，大幅减小文件体积
             wb.calculation.calcMode = "manual"
 
-            # 清空原有图片，避免重复+体积过大
-            ws._images = []
-
             # --------------------------
-            # 核心：仅填充固定列，其余列完全保留不变
+            # 核心：仅填充FBA号非空的行，空行完全不碰
             # --------------------------
-            status_text.text("🔄 正在填充固定列...")
-            progress_bar.progress(30)
-            # 遍历所有数据行，填充固定列
-            for r in range(data_start_row, max_r + 1):
+            status_text.text("🔄 正在填充FBA有效行...")
+            progress_bar.progress(40)
+            for excel_row in fba_valid_rows:
                 for col_num, val in FIXED_FILL.items():
-                    ws.cell(row=r, column=col_num, value=val)
+                    ws.cell(row=excel_row, column=col_num, value=val)
 
-            # 重新压缩写入图片（进一步减小体积）
-            status_text.text("🖼️  正在压缩图片...")
+            # --------------------------
+            # 4. 图片保留+压缩优化（修复图片丢失）
+            # --------------------------
+            status_text.text("🖼️  正在优化图片体积...")
             progress_bar.progress(60)
             img_temp_dir = tempfile.mkdtemp()
-            # 读取数据源中的图片，压缩后重新插入
-            for row_idx, row_data in data_df.iterrows():
-                excel_row = data_start_row + row_idx
-                # 处理A列图片
-                if "产品图片" in data_df.columns and pd.notna(row_data["产品图片"]):
-                    img_name = str(row_data["产品图片"]).strip()
-                    # 这里如果你的图片是本地文件，会自动读取压缩；如果是内嵌图片，会自动处理
-                    try:
-                        # 先尝试从模板中读取原有图片
-                        original_img = ws.cell(row=excel_row, column=1).value
-                        if original_img:
-                            compressed_img_path = compress_img_to_temp(original_img, img_temp_dir)
-                            if compressed_img_path:
-                                img = Image(compressed_img_path)
-                                img.width = IMG_MAX_W
-                                img.height = IMG_MAX_H
-                                ws.add_image(img, f"A{excel_row}")
-                    except:
-                        pass
+            
+            # 遍历所有行，仅压缩已有图片，不删除、不替换
+            for row in range(1, max_r + 1):
+                for col in range(1, max_c + 1):
+                    cell = ws.cell(row=row, column=col)
+                    # 仅处理有图片的单元格
+                    if cell.value and hasattr(cell.value, '_data'):
+                        compressed_path = compress_image_optimize(cell.value, img_temp_dir)
+                        if compressed_path:
+                            # 替换为压缩后的图片，保留原位置
+                            new_img = Image(compressed_path)
+                            new_img.width = IMG_MAX_W
+                            new_img.height = IMG_MAX_H
+                            ws.cell(row=row, column=col, value=new_img)
 
-            # 保存最终文件
+            # --------------------------
+            # 5. 保存最终文件
+            # --------------------------
             status_text.text("💾 正在保存文件...")
-            progress_bar.progress(90)
-            output_file_name = f"清关单_固定列填充_{today}.xlsx"
+            progress_bar.progress(80)
+            output_file_name = f"清关单_FBA行填充_{today}.xlsx"
             output_file_path = os.path.join(img_temp_dir, output_file_name)
             wb.save(output_file_path)
             wb.close()
@@ -569,7 +615,7 @@ if gen_btn:
             progress_bar.progress(100)
             status_text.text("✅ 处理完成！")
             file_size_mb = os.path.getsize(output_file_path) / 1024 / 1024
-            st.success(f"✅ 固定列填充完成，文件大小：{file_size_mb:.2f} MB")
+            st.success(f"✅ 仅FBA号非空行填充完成，文件大小：{file_size_mb:.2f} MB")
 
             # 读取文件用于下载
             with open(output_file_path, "rb") as f:
@@ -597,3 +643,4 @@ if gen_btn:
             st.error(f"处理流程异常：{str(e)}")
             import traceback
             st.code(traceback.format_exc())
+
