@@ -390,45 +390,64 @@ import datetime
 import gc
 import os
 
+import streamlit as st
+import pandas as pd
+from openpyxl import load_workbook
+from openpyxl.drawing.image import Image
+import tempfile
+import zipfile
+from io import BytesIO
+import datetime
+import gc
+import os
+import shutil
+import re
+from copy import copy
+
 # 分割线
 st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
-# ===================== 模块3：发票信息批量填充模板 =====================
+# ===================== 模块3：发票批量填充（A列图片完整填充版） =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.subheader("3. 发票信息批量填充模板 (1.xlsx)")
 st.markdown("上传附件Excel，按FBA号分组填充到模板 `1.xlsx` 中，以FBA号命名输出文件。")
-st.info("固定填充值：产品分类=CPSC，产品数量单位=套，FBA箱号=-，外箱分货标=A1，PO创建日期=今日日期")
+st.info("固定填充值：产品分类=CPSC，产品数量单位=套，FBA箱号=-，外箱分货标=A1，PO创建日期=今日日期；A列产品图片自动匹配填充")
 
 col1, col2 = st.columns([0.6, 0.4], gap="medium")
 with col1:
-    file_invoice = st.file_uploader("上传数据源Excel（如附件.xlsx）", type=["xlsx","xls"], key="invoice_file")
+    file_invoice = st.file_uploader("上传数据源Excel（支持xls/xlsx）", type=["xlsx","xls"], key="invoice_file")
 with col2:
     st.markdown('<div style="margin-top:28px;"></div>', unsafe_allow_html=True)
     gen_invoice = st.button("生成并下载发票文件", key="gen_invoice", type="primary")
 
 st.markdown('</div>', unsafe_allow_html=True)
 
+# 固定模板路径
+TEMPLATE_INVOICE_FILE = "1.xlsx"
+
 # 获取今日日期
-from datetime import datetime as dt
-now = dt.now()
+now = datetime.datetime.now()
 today_str = f"{now.year}-{now.month}-{now.day}"
 
-# 定义需要匹配的列名映射（源数据列名 → 模板列字母）
+# 列名映射：完整包含A列产品图片
 INVOICE_COL_MAP = {
+    "产品图片": "A",
     "产品中文名": "B",
     "产品英文名": "C",
+    "销售单位": "D",
     "产品材质": "E",
     "用途": "F",
     "海关编码": "G",
+    "产品分类": "H",
     "产品品牌": "I",
     "品牌类型": "J",
     "型号": "K",
     "产品数量": "L",
+    "产品数量单位": "M",
     "申报单价": "N",
     "申报总价": "O",
-    "采购单价": "P",
-    "采购总货值": "Q",
     "件数CTN": "T",
+    "尺寸CM": "U",
     "总体积": "X",
     "总净重": "Y",
     "总毛重": "Z",
@@ -438,235 +457,260 @@ INVOICE_COL_MAP = {
 
 # 固定填充值
 INVOICE_FIXED_VALUES = {
-    "H": "CPSC",
-    "M": "套",
-    "AD": "-",
-    "AE": "A1",
+    "H": "CPSC",       # 产品分类(*)
+    "M": "套",         # 产品数量单位(*)
+    "AD": "-",         # FBA箱号
+    "AE": "A1",        # 外箱分货标(*)
+    "AC": today_str    # PO创建日期
 }
 
-# 检查 session_state 中是否有已生成的文件
-if "invoice_zip_data" in st.session_state and "invoice_zip_name" in st.session_state:
-    zip_data = st.session_state.invoice_zip_data
-    zip_name = st.session_state.invoice_zip_name
-    
-    file_size_mb = len(zip_data) / 1024 / 1024
-    st.success(f"✅ 文件已生成: {zip_name} ({file_size_mb:.2f} MB)")
-    
-    # 使用 HTML 链接下载
-    import base64
-    b64 = base64.b64encode(zip_data).decode()
-    href = f'<a href="data:application/zip;base64,{b64}" download="{zip_name}" style="display:inline-block;padding:10px 24px;background-color:#2563eb;color:white;text-decoration:none;border-radius:8px;font-weight:600;font-size:16px;">📥 点击下载 ZIP 文件</a>'
-    st.markdown(href, unsafe_allow_html=True)
-    st.info("💡 如果下载按钮无效，请右键链接选择「另存为」")
-
-# 发票填充逻辑
+# 发票填充核心逻辑
 if gen_invoice:
     if not file_invoice:
         st.error("请上传数据源文件")
     elif not os.path.exists(TEMPLATE_INVOICE_FILE):
-        st.error(f"模板文件 {TEMPLATE_INVOICE_FILE} 缺失，请上传至仓库根目录")
+        st.error(f"模板文件 {TEMPLATE_INVOICE_FILE} 缺失，请上传至项目根目录")
     else:
-        # 自动清除之前的缓存
-        for key in ["invoice_zip_data", "invoice_zip_name"]:
-            if key in st.session_state:
-                del st.session_state[key]
-        
-        # 使用进度条
         progress_bar = st.progress(0)
         status_text = st.empty()
-        
         try:
-            status_text.text("📖 正在读取数据文件...")
-            
-            # 读取文件
-            import tempfile
-            import shutil
-            tmp_dir = tempfile.mkdtemp()
-            
-            input_file_path = os.path.join(tmp_dir, "input.xlsx")
-            with open(input_file_path, "wb") as f:
-                f.write(file_invoice.getvalue())
-            
-            # 用 pandas 读取
-            df = pd.read_excel(input_file_path, header=1, engine='openpyxl')
-            
-            # 清理列名
+            status_text.text("📖 正在读取数据文件与图片...")
+            df = None
+            error_messages = []
+            source_images = []  # 存储每行对应的图片对象
+
+            # 保存上传文件到临时文件
+            file_ext = os.path.splitext(file_invoice.name)[1].lower()
+            tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
+            tmp_file.write(file_invoice.getvalue())
+            tmp_file.close()
+
+            # 读取数据源，同时提取图片
+            if file_ext == ".xls":
+                # xls格式读取（仅读取单元格值，图片后续单独处理）
+                try:
+                    df = pd.read_excel(tmp_file.name, header=None, engine="xlrd")
+                except Exception as e:
+                    error_messages.append(f"xls读取失败: {str(e)}")
+                    try:
+                        df = pd.read_excel(tmp_file.name, header=None, engine="openpyxl")
+                    except Exception as e2:
+                        error_messages.append(f"openpyxl降级读取xls失败: {str(e2)}")
+            elif file_ext == ".xlsx":
+                # xlsx格式读取，同时提取图片
+                try:
+                    # 先读取单元格数据
+                    df = pd.read_excel(tmp_file.name, header=None, engine="openpyxl")
+                    # 再读取图片
+                    wb_source = load_workbook(tmp_file.name, data_only=True)
+                    ws_source = wb_source.active
+                    # 按行号存储图片，key=行号，value=图片对象
+                    image_dict = {}
+                    for img in ws_source.images.values():
+                        # 获取图片锚定的行号
+                        anchor_row = img.anchor.y
+                        if anchor_row not in image_dict:
+                            image_dict[anchor_row] = []
+                        image_dict[anchor_row].append(img)
+                    # 转换为行列表，按数据行顺序存储
+                    data_start_row = 3  # 数据从第4行开始（索引3）
+                    for row_idx in range(len(df)):
+                        excel_row = data_start_row + 1 + row_idx  # Excel行号
+                        source_images.append(image_dict.get(excel_row, []))
+                    wb_source.close()
+                except Exception as e:
+                    error_messages.append(f"xlsx读取失败: {str(e)}")
+
+            # 清理临时文件
+            try:
+                os.unlink(tmp_file.name)
+            except:
+                pass
+
+            if df is None:
+                st.error("无法读取文件，请检查：1. 文件无损坏 2. 为标准xls/xlsx格式 3. 已安装xlrd库")
+                st.error("\n".join(error_messages))
+                st.stop()
+
+            # 适配2、3行合并表头
+            row2_header = df.iloc[1].fillna("").astype(str).str.strip()
+            row3_header = df.iloc[2].fillna("").astype(str).str.strip()
+            final_columns = []
+            for h2, h3 in zip(row2_header, row3_header):
+                if h2 and h3:
+                    final_columns.append(f"{h2}{h3}")
+                elif h2:
+                    final_columns.append(h2)
+                elif h3:
+                    final_columns.append(h3)
+                else:
+                    final_columns.append(f"col_{len(final_columns)}")
+            # 数据从第4行开始
+            df = df.iloc[3:].copy()
+            df.columns = final_columns
+            df.columns = df.columns.str.strip()
+
+            # 清理列名特殊字符
             def clean_column_name(col):
                 if pd.isna(col):
                     return col
                 col = str(col)
-                import re
                 col = re.sub(r'[（(][^）)]*[）)]', '', col)
                 col = col.replace('(*)', '').replace('<br>', '').replace('(USD)', '')
-                col = col.replace('(CBM)', '').replace('(KGS)', '').replace('(个)', '')
-                col = col.replace('（个）', '').replace('（*）', '').replace('\n', '')
+                col = col.replace('(CBM)', '').replace('(KGS)', '')
                 return col.strip()
-            
             df.columns = [clean_column_name(col) for col in df.columns]
-            
-            # 检查必要的列是否存在
-            required_cols = ["跟踪号/FBA", "产品中文名", "产品英文名", "产品材质", "用途", "海关编码", 
-                            "产品品牌", "品牌类型", "型号", "产品数量", "申报单价", "申报总价", 
-                            "采购单价", "采购总货值", "件数CTN", "尺寸CM", "总体积", 
-                            "总净重", "总毛重", "内部追踪号/PO"]
-            
-            # 查找列名映射
+
+            # 宽松匹配所需列
+            required_cols = list(INVOICE_COL_MAP.keys())
             col_mapping = {}
             for req_col in required_cols:
-                found = False
+                match_found = False
+                # 完全匹配
                 for col in df.columns:
-                    if req_col == col or req_col in col or col in req_col:
+                    if col == req_col:
                         col_mapping[req_col] = col
-                        found = True
+                        match_found = True
                         break
-                if not found:
-                    req_clean = req_col.replace("/", "").replace("-", "").replace(" ", "")
-                    for col in df.columns:
-                        col_clean = col.replace("/", "").replace("-", "").replace(" ", "")
-                        if req_clean == col_clean or req_clean in col_clean or col_clean in req_clean:
-                            col_mapping[req_col] = col
-                            found = True
-                            break
-                if not found:
-                    col_mapping[req_col] = None
-            
-            missing_cols = [col for col, mapped in col_mapping.items() if mapped is None]
+                if match_found:
+                    continue
+                # 包含匹配
+                for col in df.columns:
+                    if req_col in col or col in req_col:
+                        col_mapping[req_col] = col
+                        match_found = True
+                        break
+                if match_found:
+                    continue
+                # 去除符号匹配
+                req_clean = req_col.replace("/", "").replace("-", "").replace(" ", "")
+                for col in df.columns:
+                    col_clean = col.replace("/", "").replace("-", "").replace(" ", "")
+                    if req_clean in col_clean:
+                        col_mapping[req_col] = col
+                        match_found = True
+                        break
+            # 检查缺失列
+            missing_cols = [k for k, v in col_mapping.items() if v is None]
             if missing_cols:
                 st.error(f"数据源缺少必要列：{', '.join(missing_cols)}")
+                st.error(f"当前识别到的全部列名：{', '.join(df.columns.tolist())}")
                 st.stop()
-            
-            # 重命名列
-            rename_dict = {col_mapping[col]: col for col in required_cols if col_mapping[col] is not None}
+            # 重命名列统一名称
+            rename_dict = {v: k for k, v in col_mapping.items() if v is not None}
             df = df.rename(columns=rename_dict)
-            
-            if len(df) == 0:
-                st.error("数据文件为空，请检查")
-                st.stop()
-            
-            # 按FBA号分组
+
+            # 按跟踪号/FBA分组，同时保留对应图片
             groups = df.groupby("跟踪号/FBA")
             total_groups = len(groups)
-            
-            if total_groups == 0:
-                st.error("没有找到有效的FBA号")
-                st.stop()
-            
-            status_text.text(f"📊 找到 {total_groups} 个FBA号，共 {len(df)} 行数据")
+            status_text.text(f"📊 识别到 {total_groups} 个独立FBA编号，开始生成文件")
             progress_bar.progress(5)
-            
-            # 输出目录
-            output_dir = os.path.join(tmp_dir, "output")
-            os.makedirs(output_dir, exist_ok=True)
-            
+            tmp_dir = tempfile.mkdtemp()
             file_paths = []
-            
-            # 处理每个FBA组
+
             for idx, (fba_id, group) in enumerate(groups):
                 progress = 5 + int((idx + 1) / total_groups * 90)
                 progress_bar.progress(progress)
-                status_text.text(f"🔄 处理中: {fba_id} ({idx+1}/{total_groups})")
-                
-                # 加载模板
+                status_text.text(f"🔄 正在处理 FBA编号：{fba_id} ({idx+1}/{total_groups})")
+
+                # 每次加载全新干净模板，无旧数据/旧图片残留
                 wb = load_workbook(TEMPLATE_INVOICE_FILE, data_only=True, keep_links=False)
                 ws = wb.active
-                
+                max_r = ws.max_row
+                max_c = ws.max_column
+
+                # 拆分合并单元格，消除只读报错
+                merge_ranges = list(ws.merged_cells.ranges)
+                for rng in merge_ranges:
+                    ws.unmerge_cells(str(rng))
+                # 关闭公式计算，缩小文件体积
+                wb.calculation.calcMode = "manual"
+
+                # 清空4行及以下所有旧数据、旧图片
                 data_start_row = 4
-                
-                # 清空旧数据
-                for r in range(data_start_row, 101):
-                    for c in range(1, 32):
+                # 清空单元格值
+                for r in range(data_start_row, max_r + 1):
+                    for c in range(1, max_c + 1):
                         ws.cell(row=r, column=c, value=None)
+                # 清空旧图片
+                for img in list(ws.images.values()):
+                    if img.anchor.y >= data_start_row:
+                        del ws.images[img.id]
+
+                # 写入当前分组明细+图片
+                group_rows = group.to_dict("records")
+                # 获取当前分组对应的图片
+                group_images = []
+                for row_idx in group.index:
+                    if row_idx < len(source_images):
+                        group_images.append(source_images[row_idx])
+                    else:
+                        group_images.append([])
                 
-                group_rows = group.to_dict('records')
-                
-                # 写入数据
-                for row_idx, row_data in enumerate(group_rows):
+                for row_idx, (row_data, row_imgs) in enumerate(zip(group_rows, group_images)):
                     r = data_start_row + row_idx
-                    
+                    if r > max_r:
+                        break
+                    # 填充业务数据（包含A列产品图片单元格值）
                     for col_name, col_letter in INVOICE_COL_MAP.items():
-                        if col_name == "尺寸CM":
-                            continue
                         if col_name in row_data and pd.notna(row_data[col_name]):
                             ws[f"{col_letter}{r}"] = row_data[col_name]
-                    
-                    # 处理尺寸CM
-                    if "尺寸CM" in row_data and pd.notna(row_data["尺寸CM"]):
-                        dim_str = str(row_data["尺寸CM"]).strip()
-                        import re
-                        dims = re.split(r'[ x*×\s]+', dim_str)
-                        dims = [d for d in dims if d.strip() and d.strip().replace('.', '').replace('-', '').isdigit()]
-                        if len(dims) >= 1:
-                            try:
-                                ws[f"U{r}"] = float(dims[0])
-                            except:
-                                pass
-                        if len(dims) >= 2:
-                            try:
-                                ws[f"V{r}"] = float(dims[1])
-                            except:
-                                pass
-                        if len(dims) >= 3:
-                            try:
-                                ws[f"W{r}"] = float(dims[2])
-                            except:
-                                pass
-                    
+                    # 填充固定值
                     for col_letter, value in INVOICE_FIXED_VALUES.items():
                         ws[f"{col_letter}{r}"] = value
-                    
-                    ws[f"AC{r}"] = today_str
-                
-                safe_fba_id = str(fba_id).replace("/", "_").replace("\\", "_").replace(":", "_")
-                save_path = os.path.join(output_dir, f"{safe_fba_id}.xlsx")
+                    # 填充A列产品图片
+                    for img in row_imgs:
+                        # 复制图片对象，避免引用污染
+                        new_img = copy(img)
+                        # 锚定到当前行的A列单元格
+                        new_img.anchor = f"A{r}"
+                        # 适配单元格大小
+                        new_img.width = 100
+                        new_img.height = 100
+                        # 添加到工作表
+                        ws.add_image(new_img)
+
+                # 文件名过滤非法字符
+                safe_fba_id = str(fba_id).replace("/", "_").replace("\\", "_").replace(":", "_").replace("*", "_")
+                save_path = os.path.join(tmp_dir, f"{safe_fba_id}.xlsx")
                 wb.save(save_path)
-                file_paths.append(save_path)
                 wb.close()
-            
+                file_paths.append(save_path)
+                gc.collect()
+
+            # 最高压缩打包ZIP
             progress_bar.progress(95)
-            status_text.text("📦 正在打包...")
-            
-            # 打包ZIP
+            status_text.text("📦 正在打包压缩文件...")
             zip_name = f"发票模板填充_{today_str}.zip"
             zip_path = os.path.join(tmp_dir, zip_name)
-            
-            with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED) as zf:
+            with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
                 for fp in file_paths:
                     zf.write(fp, os.path.basename(fp))
-            
-            # 读取到内存
+
+            progress_bar.progress(100)
+            status_text.text(f"✅ 处理完成！共生成 {total_groups} 个分单文件")
+            zip_size_mb = os.path.getsize(zip_path) / 1024 / 1024
+            st.success(f"✅ 成功生成 {total_groups} 个文件，压缩包大小：{zip_size_mb:.2f} MB")
+
+            # 读取压缩包用于下载
             with open(zip_path, "rb") as f:
                 zip_data = f.read()
-            
-            # 清理临时文件
             shutil.rmtree(tmp_dir, ignore_errors=True)
-            
-            # 保存到 session_state
-            st.session_state.invoice_zip_data = zip_data
-            st.session_state.invoice_zip_name = zip_name
-            
-            progress_bar.progress(100)
-            status_text.text("✅ 完成！")
-            
-            file_size_mb = len(zip_data) / 1024 / 1024
-            st.success(f"✅ 成功生成 {total_groups} 个文件，压缩包大小: {file_size_mb:.2f} MB")
-            
-            # 提供下载链接
-            import base64
-            b64 = base64.b64encode(zip_data).decode()
-            href = f'<a href="data:application/zip;base64,{b64}" download="{zip_name}" style="display:inline-block;padding:10px 24px;background-color:#2563eb;color:white;text-decoration:none;border-radius:8px;font-weight:600;font-size:16px;">📥 点击下载 ZIP 文件</a>'
-            st.markdown(href, unsafe_allow_html=True)
-            st.info("💡 如果下载按钮无效，请右键链接选择「另存为」")
-            
+
+            st.download_button(
+                label="📥 点击下载发票压缩包",
+                data=zip_data,
+                file_name=zip_name,
+                mime="application/zip",
+                key="dl_invoice_final",
+                use_container_width=True,
+            )
             progress_bar.empty()
             status_text.empty()
-            
         except Exception as e:
             progress_bar.empty()
             status_text.empty()
-            st.error(f"处理过程中发生错误：{str(e)}")
+            st.error(f"处理流程异常：{str(e)}")
             import traceback
             st.code(traceback.format_exc())
-            try:
-                shutil.rmtree(tmp_dir, ignore_errors=True)
-            except:
-                pass
+
