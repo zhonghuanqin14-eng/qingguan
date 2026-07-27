@@ -458,60 +458,23 @@ if gen_invoice:
         try:
             status_text.text("📖 正在读取数据文件...")
             
-            # 尝试多种方式读取文件
-            df = None
-            error_messages = []
+            # 保存上传文件到临时文件
+            import tempfile
+            import shutil
+            tmp_dir = tempfile.mkdtemp()
             
-            # 方法1：尝试用 pandas 直接读取
-            try:
-                # 先把上传的文件保存到临时文件
-                import tempfile
-                tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
-                tmp_file.write(file_invoice.getvalue())
-                tmp_file.close()
-                
-                # 用 openpyxl 检查是否是有效文件
-                try:
-                    from openpyxl import load_workbook as test_load
-                    test_wb = test_load(tmp_file.name, data_only=True)
-                    test_wb.close()
-                    # 文件有效，用 pandas 读取
-                    df = pd.read_excel(tmp_file.name, header=1)
-                except Exception as e:
-                    error_messages.append(f"openpyxl 读取失败: {str(e)}")
-                    # 尝试用 pandas 的 engine='openpyxl'
-                    try:
-                        df = pd.read_excel(tmp_file.name, header=1, engine='openpyxl')
-                    except Exception as e2:
-                        error_messages.append(f"pandas engine=openpyxl 读取失败: {str(e2)}")
-                        # 尝试忽略 header
-                        try:
-                            df = pd.read_excel(tmp_file.name, header=None)
-                            st.warning("使用无表头模式读取，请检查数据格式")
-                        except Exception as e3:
-                            error_messages.append(f"无表头模式读取失败: {str(e3)}")
-                
-                # 清理临时文件
-                import os
-                try:
-                    os.unlink(tmp_file.name)
-                except:
-                    pass
-                
-            except Exception as e:
-                error_messages.append(f"文件读取失败: {str(e)}")
+            # 保存上传的文件
+            input_file_path = os.path.join(tmp_dir, "input.xlsx")
+            with open(input_file_path, "wb") as f:
+                f.write(file_invoice.getvalue())
             
-            if df is None:
-                st.error("无法读取文件，请检查文件格式是否正确")
-                st.error("\n".join(error_messages))
-                st.stop()
+            # 用 openpyxl 读取
+            from openpyxl import load_workbook as test_load
+            test_wb = test_load(input_file_path, data_only=True)
+            test_wb.close()
             
-            # 如果读取的是无表头模式，尝试将第一行作为表头
-            if df.columns[0] == 0 or df.columns[0] is None or str(df.columns[0]).isdigit():
-                # 保存第一行作为表头
-                header_row = df.iloc[0].tolist()
-                df = df.iloc[1:].reset_index(drop=True)
-                df.columns = [str(h) if pd.notna(h) else f"Column_{i}" for i, h in enumerate(header_row)]
+            # 用 pandas 读取
+            df = pd.read_excel(input_file_path, header=1)
             
             # 清理列名
             def clean_column_name(col):
@@ -525,9 +488,6 @@ if gen_invoice:
                 return col.strip()
             
             df.columns = [clean_column_name(col) for col in df.columns]
-            
-            # 显示清理后的列名
-            st.info(f"读取到的列名：{', '.join(df.columns.tolist())}")
             
             # 检查必要的列是否存在
             required_cols = ["跟踪号/FBA", "产品中文名", "产品英文名", "产品材质", "用途", "海关编码", 
@@ -545,22 +505,14 @@ if gen_invoice:
                         found = True
                         break
                 if not found:
-                    # 尝试更宽松的匹配
-                    for col in df.columns:
-                        if req_col.replace("/", "").replace("-", "") in col.replace("/", "").replace("-", ""):
-                            col_mapping[req_col] = col
-                            found = True
-                            break
-                if not found:
                     col_mapping[req_col] = None
             
             missing_cols = [col for col, mapped in col_mapping.items() if mapped is None]
             if missing_cols:
                 st.error(f"数据源缺少必要列：{', '.join(missing_cols)}")
-                st.error(f"当前所有列名：{', '.join(df.columns.tolist())}")
                 st.stop()
             
-            # 重命名列以匹配映射
+            # 重命名列
             rename_dict = {col_mapping[col]: col for col in required_cols if col_mapping[col] is not None}
             df = df.rename(columns=rename_dict)
             
@@ -571,11 +523,15 @@ if gen_invoice:
             status_text.text(f"📊 找到 {total_groups} 个FBA号，开始生成文件...")
             progress_bar.progress(5)
             
-            # 使用临时目录保存文件
-            import tempfile
-            import shutil
-            tmp_dir = tempfile.mkdtemp()
+            # 输出目录
+            output_dir = os.path.join(tmp_dir, "output")
+            os.makedirs(output_dir, exist_ok=True)
+            
             file_paths = []
+            
+            # 预检查模板（只加载一次，用于验证）
+            template_check = load_workbook(TEMPLATE_INVOICE_FILE, data_only=True, keep_links=False)
+            template_check.close()
             
             for idx, (fba_id, group) in enumerate(groups):
                 # 更新进度
@@ -583,7 +539,7 @@ if gen_invoice:
                 progress_bar.progress(progress)
                 status_text.text(f"🔄 正在处理: {fba_id} ({idx+1}/{total_groups})")
                 
-                # 每次重新加载模板（稳定但稍慢）
+                # 加载模板
                 wb = load_workbook(TEMPLATE_INVOICE_FILE, data_only=True, keep_links=False)
                 ws = wb.active
                 
@@ -639,9 +595,9 @@ if gen_invoice:
                     # 填充PO创建日期
                     ws[f"AC{r}"] = today_str
                 
-                # 保存到临时文件
+                # 保存文件
                 safe_fba_id = str(fba_id).replace("/", "_").replace("\\", "_")
-                save_path = os.path.join(tmp_dir, f"{safe_fba_id}.xlsx")
+                save_path = os.path.join(output_dir, f"{safe_fba_id}.xlsx")
                 wb.save(save_path)
                 file_paths.append(save_path)
                 
@@ -654,39 +610,48 @@ if gen_invoice:
             zip_name = f"发票模板填充_{today_str}.zip"
             zip_path = os.path.join(tmp_dir, zip_name)
             
-            with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            # 使用更快的压缩方式（存储模式，不压缩，速度最快）
+            # 如果文件太大，可以用 store 模式
+            with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED) as zf:
                 for fp in file_paths:
                     zf.write(fp, os.path.basename(fp))
             
-            progress_bar.progress(100)
-            status_text.text(f"✅ 完成！共生成 {total_groups} 个文件")
+            progress_bar.progress(98)
+            status_text.text("📤 准备下载...")
             
-            # 读取文件大小
+            # 获取文件大小
             file_size = os.path.getsize(zip_path)
             file_size_mb = file_size / 1024 / 1024
             
+            # 使用 st.download_button 直接从磁盘流式读取（不加载到内存）
+            # 这样更快，且不会占用内存
             st.success(f"✅ 成功生成 {total_groups} 个文件，压缩包大小: {file_size_mb:.2f} MB")
             
-            # 读取文件到内存用于下载
+            # 关键优化：使用 open() 直接传给 download_button，实现流式传输
+            # 注意：这里要用 with，但 download_button 会在后台读取文件
             with open(zip_path, "rb") as f:
-                zip_data = f.read()
+                st.download_button(
+                    label="📥 点击下载发票压缩包",
+                    data=f,
+                    file_name=zip_name,
+                    mime="application/zip",
+                    key="dl_invoice_final",
+                    use_container_width=True,
+                )
             
-            # 清理临时文件
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+            progress_bar.progress(100)
+            status_text.text("✅ 完成！")
             
-            # 提供下载按钮
-            st.download_button(
-                label="📥 点击下载发票压缩包",
-                data=zip_data,
-                file_name=zip_name,
-                mime="application/zip",
-                key="dl_invoice_final",
-                use_container_width=True,
-            )
-            
-            # 清理进度条
-            progress_bar.empty()
-            status_text.empty()
+            # 清理临时文件（后台清理）
+            import threading
+            def cleanup():
+                import time
+                time.sleep(60)  # 等待下载完成
+                try:
+                    shutil.rmtree(tmp_dir, ignore_errors=True)
+                except:
+                    pass
+            threading.Thread(target=cleanup, daemon=True).start()
             
         except Exception as e:
             progress_bar.empty()
@@ -694,3 +659,8 @@ if gen_invoice:
             st.error(f"处理过程中发生错误：{str(e)}")
             import traceback
             st.code(traceback.format_exc())
+            # 清理临时文件
+            try:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+            except:
+                pass
