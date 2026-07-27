@@ -393,7 +393,7 @@ import os
 # 分割线
 st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
-# ===================== 模块3：发票信息批量填充（固定模板1.xlsx+兼容所有Excel格式） =====================
+# ===================== 模块3：发票信息批量填充（无xlrd依赖，修复文件读取报错） =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.subheader("3. 发票信息批量填充模板 (1.xlsx)")
 st.markdown("上传附件Excel，按FBA号分组填充到模板 `1.xlsx` 中，以FBA号命名输出文件。")
@@ -454,70 +454,39 @@ if gen_invoice:
     if not file_invoice:
         st.error("请上传数据源文件")
     elif not os.path.exists(TEMPLATE_INVOICE_FILE):
-        st.error(f"模板文件 {TEMPLATE_INVOICE_FILE} 缺失，请上传至仓库根目录")
+        st.error(f"模板文件 {TEMPLATE_INVOICE_FILE} 缺失，请上传至项目根目录")
     else:
-        # 进度条初始化
         progress_bar = st.progress(0)
         status_text = st.empty()
-        
         try:
             status_text.text("📖 正在读取数据文件...")
-            
-            # --------------------------
-            # 修复1：兼容xls/xlsx格式，自动切换引擎
-            # --------------------------
             df = None
             error_messages = []
-            
-            # 先判断文件类型，选择对应引擎
-            file_ext = os.path.splitext(file_invoice.name)[1].lower()
-            tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
+
+            # 修复：不依赖xlrd，仅使用openpyxl，直接读取文件二进制
+            tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
             tmp_file.write(file_invoice.getvalue())
             tmp_file.close()
-            
-            # 读取逻辑：优先用对应引擎，失败则降级
-            if file_ext == ".xlsx":
-                # xlsx格式：用openpyxl
-                try:
-                    df = pd.read_excel(tmp_file.name, header=None, engine="openpyxl")
-                except Exception as e:
-                    error_messages.append(f"xlsx读取失败: {str(e)}")
-                    # 降级：用xlrd
-                    try:
-                        df = pd.read_excel(tmp_file.name, header=None, engine="xlrd")
-                    except Exception as e2:
-                        error_messages.append(f"xlrd降级读取失败: {str(e2)}")
-            elif file_ext == ".xls":
-                # xls格式：用xlrd
-                try:
-                    df = pd.read_excel(tmp_file.name, header=None, engine="xlrd")
-                except Exception as e:
-                    error_messages.append(f"xls读取失败: {str(e)}")
-                    # 降级：用openpyxl（兼容部分异常xls）
-                    try:
-                        df = pd.read_excel(tmp_file.name, header=None, engine="openpyxl")
-                    except Exception as e2:
-                        error_messages.append(f"openpyxl降级读取失败: {str(e2)}")
-            
+            try:
+                # 直接用openpyxl读取，无视文件后缀
+                df = pd.read_excel(tmp_file.name, header=None, engine="openpyxl")
+            except Exception as e:
+                error_messages.append(f"文件读取失败，文件可能损坏/不是标准xlsx：{str(e)}")
+
             # 清理临时文件
             try:
                 os.unlink(tmp_file.name)
             except:
                 pass
-            
+
             if df is None:
-                st.error("无法读取文件，请检查文件格式是否正确（仅支持xlsx/xls）")
+                st.error("无法读取文件，请检查：1. 文件无损坏 2. 文件为标准.xlsx格式")
                 st.error("\n".join(error_messages))
                 st.stop()
-            
-            # --------------------------
-            # 修复2：适配2、3行合并表头
-            # --------------------------
-            # 读取第2行(index=1)、第3行(index=2)合并为表头
+
+            # 适配2、3行合并表头
             row2_header = df.iloc[1].fillna("").astype(str).str.strip()
             row3_header = df.iloc[2].fillna("").astype(str).str.strip()
-            
-            # 合并生成最终列名
             final_columns = []
             for h2, h3 in zip(row2_header, row3_header):
                 if h2 and h3:
@@ -528,13 +497,12 @@ if gen_invoice:
                     final_columns.append(h3)
                 else:
                     final_columns.append(f"col_{len(final_columns)}")
-            
-            # 数据从第4行(index=3)开始
+            # 数据从第4行开始
             df = df.iloc[3:].copy()
             df.columns = final_columns
             df.columns = df.columns.str.strip()
-            
-            # 清理列名（去除括号、特殊字符）
+
+            # 清理列名特殊字符
             def clean_column_name(col):
                 if pd.isna(col):
                     return col
@@ -544,153 +512,120 @@ if gen_invoice:
                 col = col.replace('(*)', '').replace('<br>', '').replace('(USD)', '')
                 col = col.replace('(CBM)', '').replace('(KGS)', '')
                 return col.strip()
-            
             df.columns = [clean_column_name(col) for col in df.columns]
-            
-            # 显示列名（仅调试用，可注释）
-            # st.info(f"读取到的列名：{', '.join(df.columns.tolist())}")
-            
-            # --------------------------
-            # 修复3：列名宽松匹配，避免找不到列
-            # --------------------------
+
+            # 宽松匹配所需列
             required_cols = list(INVOICE_COL_MAP.keys())
             col_mapping = {}
-            
             for req_col in required_cols:
-                found = False
-                # 1. 完全匹配
+                match_found = False
+                # 完全匹配
                 for col in df.columns:
                     if col == req_col:
                         col_mapping[req_col] = col
-                        found = True
+                        match_found = True
                         break
-                if found:
+                if match_found:
                     continue
-                # 2. 包含匹配
+                # 包含匹配
                 for col in df.columns:
                     if req_col in col or col in req_col:
                         col_mapping[req_col] = col
-                        found = True
+                        match_found = True
                         break
-                if found:
+                if match_found:
                     continue
-                # 3. 去除特殊字符后匹配
-                req_col_clean = req_col.replace("/", "").replace("-", "").replace(" ", "")
+                # 去除符号匹配
+                req_clean = req_col.replace("/", "").replace("-", "").replace(" ", "")
                 for col in df.columns:
                     col_clean = col.replace("/", "").replace("-", "").replace(" ", "")
-                    if req_col_clean in col_clean or col_clean in req_col_clean:
+                    if req_clean in col_clean:
                         col_mapping[req_col] = col
-                        found = True
+                        match_found = True
                         break
-            
             # 检查缺失列
-            missing_cols = [col for col, mapped in col_mapping.items() if mapped is None]
+            missing_cols = [k for k, v in col_mapping.items() if v is None]
             if missing_cols:
                 st.error(f"数据源缺少必要列：{', '.join(missing_cols)}")
-                st.error(f"当前所有列名：{', '.join(df.columns.tolist())}")
+                st.error(f"当前识别到的全部列名：{', '.join(df.columns.tolist())}")
                 st.stop()
-            
-            # 重命名列
-            rename_dict = {col_mapping[col]: col for col in required_cols if col_mapping[col] is not None}
+            # 重命名列统一名称
+            rename_dict = {v: k for k, v in col_mapping.items() if v is not None}
             df = df.rename(columns=rename_dict)
-            
-            # --------------------------
-            # 按FBA号分组，生成文件
-            # --------------------------
+
+            # 按跟踪号/FBA分组
             groups = df.groupby("跟踪号/FBA")
             total_groups = len(groups)
-            
-            status_text.text(f"📊 找到 {total_groups} 个FBA号，开始生成文件...")
+            status_text.text(f"📊 识别到 {total_groups} 个独立FBA编号，开始生成文件")
             progress_bar.progress(5)
-            
             tmp_dir = tempfile.mkdtemp()
             file_paths = []
-            
+
             for idx, (fba_id, group) in enumerate(groups):
-                # 更新进度
                 progress = 5 + int((idx + 1) / total_groups * 90)
                 progress_bar.progress(progress)
-                status_text.text(f"🔄 正在处理: {fba_id} ({idx+1}/{total_groups})")
-                
-                # 每次重新加载干净模板，避免旧数据残留
+                status_text.text(f"🔄 正在处理 FBA编号：{fba_id} ({idx+1}/{total_groups})")
+
+                # 每次加载全新干净模板，无旧数据残留
                 wb = load_workbook(TEMPLATE_INVOICE_FILE, data_only=True, keep_links=False)
                 ws = wb.active
                 max_r = ws.max_row
                 max_c = ws.max_column
-                
-                # 拆分所有合并单元格，消除只读报错
+
+                # 拆分合并单元格，消除只读报错
                 merge_ranges = list(ws.merged_cells.ranges)
                 for rng in merge_ranges:
                     ws.unmerge_cells(str(rng))
-                
-                # 关闭公式自动计算，减小文件体积
+                # 关闭公式计算，缩小文件体积
                 wb.calculation.calcMode = "manual"
-                
-                # 清空旧数据（第4行及以下）
+
+                # 清空4行及以下所有旧数据
                 data_start_row = 4
                 for r in range(data_start_row, max_r + 1):
                     for c in range(1, max_c + 1):
                         ws.cell(row=r, column=c, value=None)
-                
-                # 写入新数据
-                group_rows = group.to_dict('records')
+
+                # 写入当前分组明细
+                group_rows = group.to_dict("records")
                 for row_idx, row_data in enumerate(group_rows):
                     r = data_start_row + row_idx
                     if r > max_r:
                         break
-                    
-                    # 填充映射列
+                    # 填充业务数据
                     for col_name, col_letter in INVOICE_COL_MAP.items():
                         if col_name in row_data and pd.notna(row_data[col_name]):
                             ws[f"{col_letter}{r}"] = row_data[col_name]
-                    
                     # 填充固定值
                     for col_letter, value in INVOICE_FIXED_VALUES.items():
                         ws[f"{col_letter}{r}"] = value
-                
-                # 保存文件，FBA号命名
+
+                # 文件名过滤非法字符
                 safe_fba_id = str(fba_id).replace("/", "_").replace("\\", "_").replace(":", "_").replace("*", "_")
                 save_path = os.path.join(tmp_dir, f"{safe_fba_id}.xlsx")
                 wb.save(save_path)
                 wb.close()
                 file_paths.append(save_path)
-                
-                # 垃圾回收
-                import gc
                 gc.collect()
-            
-            # --------------------------
-            # 打包ZIP，提供下载
-            # --------------------------
+
+            # 最高压缩打包ZIP
             progress_bar.progress(95)
-            status_text.text("📦 正在打包ZIP文件...")
-            
+            status_text.text("📦 正在打包压缩文件...")
             zip_name = f"发票模板填充_{today_str}.zip"
             zip_path = os.path.join(tmp_dir, zip_name)
-            
-            # 最高压缩等级
             with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
                 for fp in file_paths:
                     zf.write(fp, os.path.basename(fp))
-            
+
             progress_bar.progress(100)
-            status_text.text(f"✅ 完成！共生成 {total_groups} 个文件")
-            
-            # 读取文件大小
-            file_size = os.path.getsize(zip_path)
-            file_size_mb = file_size / 1024 / 1024
-            
-            st.success(f"✅ 成功生成 {total_groups} 个文件，压缩包大小: {file_size_mb:.2f} MB")
-            
-            # 读取文件到内存
+            status_text.text(f"✅ 处理完成！共生成 {total_groups} 个分单文件")
+            zip_size_mb = os.path.getsize(zip_path) / 1024 / 1024
+            st.success(f"✅ 成功生成 {total_groups} 个文件，压缩包大小：{zip_size_mb:.2f} MB")
+
+            # 读取压缩包用于下载
             with open(zip_path, "rb") as f:
                 zip_data = f.read()
-            
-            # 清理临时文件
-            import shutil
             shutil.rmtree(tmp_dir, ignore_errors=True)
-            
-            # 下载按钮
+
             st.download_button(
                 label="📥 点击下载发票压缩包",
                 data=zip_data,
@@ -699,14 +634,12 @@ if gen_invoice:
                 key="dl_invoice_final",
                 use_container_width=True,
             )
-            
-            # 清理进度条
             progress_bar.empty()
             status_text.empty()
-            
         except Exception as e:
             progress_bar.empty()
             status_text.empty()
-            st.error(f"处理过程中发生错误：{str(e)}")
+            st.error(f"处理流程异常：{str(e)}")
             import traceback
             st.code(traceback.format_exc())
+
