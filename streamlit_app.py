@@ -393,7 +393,7 @@ import os
 # 分割线
 st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
-# ===================== 模块3：发票信息批量填充模板 =====================
+# ===================== 模块3：发票信息批量填充（固定模板1.xlsx+兼容所有Excel格式） =====================
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.subheader("3. 发票信息批量填充模板 (1.xlsx)")
 st.markdown("上传附件Excel，按FBA号分组填充到模板 `1.xlsx` 中，以FBA号命名输出文件。")
@@ -408,12 +408,15 @@ with col2:
 
 st.markdown('</div>', unsafe_allow_html=True)
 
+# 固定模板路径（你要求的TEMPLATE_INVOICE_FILE = "1.xlsx"）
+TEMPLATE_INVOICE_FILE = "1.xlsx"
+
 # 获取今日日期
 from datetime import datetime as dt
 now = dt.now()
 today_str = f"{now.year}-{now.month}-{now.day}"
 
-# 定义需要匹配的列名映射
+# 列名映射（完全匹配你的模板列）
 INVOICE_COL_MAP = {
     "产品中文名": "B",
     "产品英文名": "C",
@@ -429,6 +432,7 @@ INVOICE_COL_MAP = {
     "采购单价": "P",
     "采购总货值": "Q",
     "件数CTN": "T",
+    "尺寸CM": "U",
     "总体积": "X",
     "总净重": "Y",
     "总毛重": "Z",
@@ -436,84 +440,101 @@ INVOICE_COL_MAP = {
     "内部追踪号/PO": "AB",
 }
 
-# 固定填充值
+# 固定填充值（严格按你要求）
 INVOICE_FIXED_VALUES = {
-    "H": "CPSC",
-    "M": "套",
-    "AD": "-",
-    "AE": "A1",
+    "H": "CPSC",       # 产品分类(*)
+    "M": "套",         # 产品数量单位(*)
+    "AD": "-",         # FBA箱号
+    "AE": "A1",        # 外箱分货标(*)
+    "AC": today_str    # PO创建日期
 }
 
-# 发票填充逻辑
+# 发票填充核心逻辑
 if gen_invoice:
     if not file_invoice:
         st.error("请上传数据源文件")
     elif not os.path.exists(TEMPLATE_INVOICE_FILE):
         st.error(f"模板文件 {TEMPLATE_INVOICE_FILE} 缺失，请上传至仓库根目录")
     else:
-        # 使用进度条
+        # 进度条初始化
         progress_bar = st.progress(0)
         status_text = st.empty()
         
         try:
             status_text.text("📖 正在读取数据文件...")
             
-            # 尝试多种方式读取文件
+            # --------------------------
+            # 修复1：兼容xls/xlsx格式，自动切换引擎
+            # --------------------------
             df = None
             error_messages = []
             
-            # 方法1：尝试用 pandas 直接读取
-            try:
-                # 先把上传的文件保存到临时文件
-                import tempfile
-                tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
-                tmp_file.write(file_invoice.getvalue())
-                tmp_file.close()
-                
-                # 用 openpyxl 检查是否是有效文件
+            # 先判断文件类型，选择对应引擎
+            file_ext = os.path.splitext(file_invoice.name)[1].lower()
+            tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
+            tmp_file.write(file_invoice.getvalue())
+            tmp_file.close()
+            
+            # 读取逻辑：优先用对应引擎，失败则降级
+            if file_ext == ".xlsx":
+                # xlsx格式：用openpyxl
                 try:
-                    from openpyxl import load_workbook as test_load
-                    test_wb = test_load(tmp_file.name, data_only=True)
-                    test_wb.close()
-                    # 文件有效，用 pandas 读取
-                    df = pd.read_excel(tmp_file.name, header=1)
+                    df = pd.read_excel(tmp_file.name, header=None, engine="openpyxl")
                 except Exception as e:
-                    error_messages.append(f"openpyxl 读取失败: {str(e)}")
-                    # 尝试用 pandas 的 engine='openpyxl'
+                    error_messages.append(f"xlsx读取失败: {str(e)}")
+                    # 降级：用xlrd
                     try:
-                        df = pd.read_excel(tmp_file.name, header=1, engine='openpyxl')
+                        df = pd.read_excel(tmp_file.name, header=None, engine="xlrd")
                     except Exception as e2:
-                        error_messages.append(f"pandas engine=openpyxl 读取失败: {str(e2)}")
-                        # 尝试忽略 header
-                        try:
-                            df = pd.read_excel(tmp_file.name, header=None)
-                            st.warning("使用无表头模式读取，请检查数据格式")
-                        except Exception as e3:
-                            error_messages.append(f"无表头模式读取失败: {str(e3)}")
-                
-                # 清理临时文件
-                import os
+                        error_messages.append(f"xlrd降级读取失败: {str(e2)}")
+            elif file_ext == ".xls":
+                # xls格式：用xlrd
                 try:
-                    os.unlink(tmp_file.name)
-                except:
-                    pass
-                
-            except Exception as e:
-                error_messages.append(f"文件读取失败: {str(e)}")
+                    df = pd.read_excel(tmp_file.name, header=None, engine="xlrd")
+                except Exception as e:
+                    error_messages.append(f"xls读取失败: {str(e)}")
+                    # 降级：用openpyxl（兼容部分异常xls）
+                    try:
+                        df = pd.read_excel(tmp_file.name, header=None, engine="openpyxl")
+                    except Exception as e2:
+                        error_messages.append(f"openpyxl降级读取失败: {str(e2)}")
+            
+            # 清理临时文件
+            try:
+                os.unlink(tmp_file.name)
+            except:
+                pass
             
             if df is None:
-                st.error("无法读取文件，请检查文件格式是否正确")
+                st.error("无法读取文件，请检查文件格式是否正确（仅支持xlsx/xls）")
                 st.error("\n".join(error_messages))
                 st.stop()
             
-            # 如果读取的是无表头模式，尝试将第一行作为表头
-            if df.columns[0] == 0 or df.columns[0] is None or str(df.columns[0]).isdigit():
-                # 保存第一行作为表头
-                header_row = df.iloc[0].tolist()
-                df = df.iloc[1:].reset_index(drop=True)
-                df.columns = [str(h) if pd.notna(h) else f"Column_{i}" for i, h in enumerate(header_row)]
+            # --------------------------
+            # 修复2：适配2、3行合并表头
+            # --------------------------
+            # 读取第2行(index=1)、第3行(index=2)合并为表头
+            row2_header = df.iloc[1].fillna("").astype(str).str.strip()
+            row3_header = df.iloc[2].fillna("").astype(str).str.strip()
             
-            # 清理列名
+            # 合并生成最终列名
+            final_columns = []
+            for h2, h3 in zip(row2_header, row3_header):
+                if h2 and h3:
+                    final_columns.append(f"{h2}{h3}")
+                elif h2:
+                    final_columns.append(h2)
+                elif h3:
+                    final_columns.append(h3)
+                else:
+                    final_columns.append(f"col_{len(final_columns)}")
+            
+            # 数据从第4行(index=3)开始
+            df = df.iloc[3:].copy()
+            df.columns = final_columns
+            df.columns = df.columns.str.strip()
+            
+            # 清理列名（去除括号、特殊字符）
             def clean_column_name(col):
                 if pd.isna(col):
                     return col
@@ -526,54 +547,62 @@ if gen_invoice:
             
             df.columns = [clean_column_name(col) for col in df.columns]
             
-            # 显示清理后的列名
-            st.info(f"读取到的列名：{', '.join(df.columns.tolist())}")
+            # 显示列名（仅调试用，可注释）
+            # st.info(f"读取到的列名：{', '.join(df.columns.tolist())}")
             
-            # 检查必要的列是否存在
-            required_cols = ["跟踪号/FBA", "产品中文名", "产品英文名", "产品材质", "用途", "海关编码", 
-                            "产品品牌", "品牌类型", "型号", "产品数量", "申报单价", "申报总价", 
-                            "采购单价", "采购总货值", "件数CTN", "尺寸CM", "总体积", 
-                            "总净重", "总毛重", "内部追踪号/PO"]
-            
-            # 查找可能的列名变体
+            # --------------------------
+            # 修复3：列名宽松匹配，避免找不到列
+            # --------------------------
+            required_cols = list(INVOICE_COL_MAP.keys())
             col_mapping = {}
+            
             for req_col in required_cols:
                 found = False
+                # 1. 完全匹配
+                for col in df.columns:
+                    if col == req_col:
+                        col_mapping[req_col] = col
+                        found = True
+                        break
+                if found:
+                    continue
+                # 2. 包含匹配
                 for col in df.columns:
                     if req_col in col or col in req_col:
                         col_mapping[req_col] = col
                         found = True
                         break
-                if not found:
-                    # 尝试更宽松的匹配
-                    for col in df.columns:
-                        if req_col.replace("/", "").replace("-", "") in col.replace("/", "").replace("-", ""):
-                            col_mapping[req_col] = col
-                            found = True
-                            break
-                if not found:
-                    col_mapping[req_col] = None
+                if found:
+                    continue
+                # 3. 去除特殊字符后匹配
+                req_col_clean = req_col.replace("/", "").replace("-", "").replace(" ", "")
+                for col in df.columns:
+                    col_clean = col.replace("/", "").replace("-", "").replace(" ", "")
+                    if req_col_clean in col_clean or col_clean in req_col_clean:
+                        col_mapping[req_col] = col
+                        found = True
+                        break
             
+            # 检查缺失列
             missing_cols = [col for col, mapped in col_mapping.items() if mapped is None]
             if missing_cols:
                 st.error(f"数据源缺少必要列：{', '.join(missing_cols)}")
                 st.error(f"当前所有列名：{', '.join(df.columns.tolist())}")
                 st.stop()
             
-            # 重命名列以匹配映射
+            # 重命名列
             rename_dict = {col_mapping[col]: col for col in required_cols if col_mapping[col] is not None}
             df = df.rename(columns=rename_dict)
             
-            # 按FBA号分组
+            # --------------------------
+            # 按FBA号分组，生成文件
+            # --------------------------
             groups = df.groupby("跟踪号/FBA")
             total_groups = len(groups)
             
             status_text.text(f"📊 找到 {total_groups} 个FBA号，开始生成文件...")
             progress_bar.progress(5)
             
-            # 使用临时目录保存文件
-            import tempfile
-            import shutil
             tmp_dir = tempfile.mkdtemp()
             file_paths = []
             
@@ -583,78 +612,64 @@ if gen_invoice:
                 progress_bar.progress(progress)
                 status_text.text(f"🔄 正在处理: {fba_id} ({idx+1}/{total_groups})")
                 
-                # 每次重新加载模板（稳定但稍慢）
+                # 每次重新加载干净模板，避免旧数据残留
                 wb = load_workbook(TEMPLATE_INVOICE_FILE, data_only=True, keep_links=False)
                 ws = wb.active
+                max_r = ws.max_row
+                max_c = ws.max_column
                 
-                # 数据从第4行开始
+                # 拆分所有合并单元格，消除只读报错
+                merge_ranges = list(ws.merged_cells.ranges)
+                for rng in merge_ranges:
+                    ws.unmerge_cells(str(rng))
+                
+                # 关闭公式自动计算，减小文件体积
+                wb.calculation.calcMode = "manual"
+                
+                # 清空旧数据（第4行及以下）
                 data_start_row = 4
-                
-                # 清空旧数据
-                for r in range(data_start_row, 101):
-                    for c in range(1, 32):
-                        if ws.cell(row=r, column=c).value is not None:
-                            ws.cell(row=r, column=c, value=None)
-                
-                # 获取当前组的行数据
-                group_rows = group.to_dict('records')
+                for r in range(data_start_row, max_r + 1):
+                    for c in range(1, max_c + 1):
+                        ws.cell(row=r, column=c, value=None)
                 
                 # 写入新数据
+                group_rows = group.to_dict('records')
                 for row_idx, row_data in enumerate(group_rows):
                     r = data_start_row + row_idx
+                    if r > max_r:
+                        break
                     
-                    # 填充映射的列
+                    # 填充映射列
                     for col_name, col_letter in INVOICE_COL_MAP.items():
-                        if col_name == "尺寸CM":
-                            continue
                         if col_name in row_data and pd.notna(row_data[col_name]):
                             ws[f"{col_letter}{r}"] = row_data[col_name]
-                    
-                    # 处理尺寸CM拆分
-                    if "尺寸CM" in row_data and pd.notna(row_data["尺寸CM"]):
-                        dim_str = str(row_data["尺寸CM"]).strip()
-                        import re
-                        dims = re.split(r'[ x*×\s]+', dim_str)
-                        dims = [d for d in dims if d.strip() and d.strip().replace('.', '').replace('-', '').isdigit()]
-                        if len(dims) >= 1:
-                            try:
-                                ws[f"U{r}"] = float(dims[0])
-                            except:
-                                pass
-                        if len(dims) >= 2:
-                            try:
-                                ws[f"V{r}"] = float(dims[1])
-                            except:
-                                pass
-                        if len(dims) >= 3:
-                            try:
-                                ws[f"W{r}"] = float(dims[2])
-                            except:
-                                pass
                     
                     # 填充固定值
                     for col_letter, value in INVOICE_FIXED_VALUES.items():
                         ws[f"{col_letter}{r}"] = value
-                    
-                    # 填充PO创建日期
-                    ws[f"AC{r}"] = today_str
                 
-                # 保存到临时文件
-                safe_fba_id = str(fba_id).replace("/", "_").replace("\\", "_")
+                # 保存文件，FBA号命名
+                safe_fba_id = str(fba_id).replace("/", "_").replace("\\", "_").replace(":", "_").replace("*", "_")
                 save_path = os.path.join(tmp_dir, f"{safe_fba_id}.xlsx")
                 wb.save(save_path)
+                wb.close()
                 file_paths.append(save_path)
                 
-                wb.close()
+                # 垃圾回收
+                import gc
+                gc.collect()
             
+            # --------------------------
+            # 打包ZIP，提供下载
+            # --------------------------
             progress_bar.progress(95)
             status_text.text("📦 正在打包ZIP文件...")
             
-            # 创建ZIP压缩包
             zip_name = f"发票模板填充_{today_str}.zip"
             zip_path = os.path.join(tmp_dir, zip_name)
             
-            with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            # 最高压缩等级
+            with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
                 for fp in file_paths:
                     zf.write(fp, os.path.basename(fp))
             
@@ -667,14 +682,15 @@ if gen_invoice:
             
             st.success(f"✅ 成功生成 {total_groups} 个文件，压缩包大小: {file_size_mb:.2f} MB")
             
-            # 读取文件到内存用于下载
+            # 读取文件到内存
             with open(zip_path, "rb") as f:
                 zip_data = f.read()
             
             # 清理临时文件
+            import shutil
             shutil.rmtree(tmp_dir, ignore_errors=True)
             
-            # 提供下载按钮
+            # 下载按钮
             st.download_button(
                 label="📥 点击下载发票压缩包",
                 data=zip_data,
