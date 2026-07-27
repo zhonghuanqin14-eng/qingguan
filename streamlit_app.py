@@ -444,6 +444,46 @@ INVOICE_FIXED_VALUES = {
     "AE": "A1",
 }
 
+# 检查 session_state 中是否有已生成的文件
+if "invoice_zip_path" in st.session_state and "invoice_zip_name" in st.session_state:
+    zip_path = st.session_state.invoice_zip_path
+    zip_name = st.session_state.invoice_zip_name
+    
+    if os.path.exists(zip_path):
+        file_size = os.path.getsize(zip_path)
+        file_size_mb = file_size / 1024 / 1024
+        
+        st.success(f"✅ 文件已生成: {zip_name} ({file_size_mb:.2f} MB)")
+        
+        # 使用 HTML 链接直接下载（绕过 Streamlit 的缓冲）
+        import base64
+        with open(zip_path, "rb") as f:
+            data = f.read()
+        
+        b64 = base64.b64encode(data).decode()
+        href = f'<a href="data:application/zip;base64,{b64}" download="{zip_name}" style="display:inline-block;padding:10px 24px;background-color:#2563eb;color:white;text-decoration:none;border-radius:8px;font-weight:600;font-size:16px;">📥 点击下载 ZIP 文件</a>'
+        st.markdown(href, unsafe_allow_html=True)
+        
+        # 重新生成按钮
+        if st.button("🔄 重新生成", key="regenerate_invoice"):
+            # 清理旧文件
+            try:
+                os.remove(zip_path)
+            except:
+                pass
+            for key in ["invoice_zip_path", "invoice_zip_name"]:
+                if key in st.session_state:
+                    del st.session_state[key]
+            st.rerun()
+        
+        # 不自动清理，让用户手动清理或重新生成时清理
+    else:
+        st.warning("文件已丢失，请重新生成")
+        for key in ["invoice_zip_path", "invoice_zip_name"]:
+            if key in st.session_state:
+                del st.session_state[key]
+        st.rerun()
+
 # 发票填充逻辑
 if gen_invoice:
     if not file_invoice:
@@ -468,11 +508,6 @@ if gen_invoice:
             with open(input_file_path, "wb") as f:
                 f.write(file_invoice.getvalue())
             
-            # 用 openpyxl 读取
-            from openpyxl import load_workbook as test_load
-            test_wb = test_load(input_file_path, data_only=True)
-            test_wb.close()
-            
             # 用 pandas 读取
             df = pd.read_excel(input_file_path, header=1)
             
@@ -495,7 +530,7 @@ if gen_invoice:
                             "采购单价", "采购总货值", "件数CTN", "尺寸CM", "总体积", 
                             "总净重", "总毛重", "内部追踪号/PO"]
             
-            # 查找可能的列名变体
+            # 查找列名
             col_mapping = {}
             for req_col in required_cols:
                 found = False
@@ -529,44 +564,36 @@ if gen_invoice:
             
             file_paths = []
             
-            # 预检查模板（只加载一次，用于验证）
-            template_check = load_workbook(TEMPLATE_INVOICE_FILE, data_only=True, keep_links=False)
-            template_check.close()
-            
+            # 使用更快的处理方式：批量生成
             for idx, (fba_id, group) in enumerate(groups):
-                # 更新进度
                 progress = 5 + int((idx + 1) / total_groups * 90)
                 progress_bar.progress(progress)
                 status_text.text(f"🔄 正在处理: {fba_id} ({idx+1}/{total_groups})")
                 
-                # 加载模板
+                # 加载模板（使用 data_only=True 和 keep_links=False 加速）
                 wb = load_workbook(TEMPLATE_INVOICE_FILE, data_only=True, keep_links=False)
                 ws = wb.active
                 
-                # 数据从第4行开始
                 data_start_row = 4
                 
-                # 清空旧数据
+                # 清空旧数据（只清空有数据的单元格，提升速度）
                 for r in range(data_start_row, 101):
                     for c in range(1, 32):
-                        if ws.cell(row=r, column=c).value is not None:
-                            ws.cell(row=r, column=c, value=None)
+                        ws.cell(row=r, column=c, value=None)
                 
-                # 获取当前组的行数据
                 group_rows = group.to_dict('records')
                 
-                # 写入新数据
+                # 批量写入数据
                 for row_idx, row_data in enumerate(group_rows):
                     r = data_start_row + row_idx
                     
-                    # 填充映射的列
                     for col_name, col_letter in INVOICE_COL_MAP.items():
                         if col_name == "尺寸CM":
                             continue
                         if col_name in row_data and pd.notna(row_data[col_name]):
                             ws[f"{col_letter}{r}"] = row_data[col_name]
                     
-                    # 处理尺寸CM拆分
+                    # 处理尺寸CM
                     if "尺寸CM" in row_data and pd.notna(row_data["尺寸CM"]):
                         dim_str = str(row_data["尺寸CM"]).strip()
                         import re
@@ -588,70 +615,54 @@ if gen_invoice:
                             except:
                                 pass
                     
-                    # 填充固定值
                     for col_letter, value in INVOICE_FIXED_VALUES.items():
                         ws[f"{col_letter}{r}"] = value
                     
-                    # 填充PO创建日期
                     ws[f"AC{r}"] = today_str
                 
-                # 保存文件
                 safe_fba_id = str(fba_id).replace("/", "_").replace("\\", "_")
                 save_path = os.path.join(output_dir, f"{safe_fba_id}.xlsx")
                 wb.save(save_path)
                 file_paths.append(save_path)
-                
                 wb.close()
             
             progress_bar.progress(95)
             status_text.text("📦 正在打包ZIP文件...")
             
-            # 创建ZIP压缩包
+            # 快速打包（不压缩）
             zip_name = f"发票模板填充_{today_str}.zip"
             zip_path = os.path.join(tmp_dir, zip_name)
             
-            # 使用更快的压缩方式（存储模式，不压缩，速度最快）
-            # 如果文件太大，可以用 store 模式
             with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED) as zf:
                 for fp in file_paths:
                     zf.write(fp, os.path.basename(fp))
             
-            progress_bar.progress(98)
-            status_text.text("📤 准备下载...")
+            progress_bar.progress(100)
+            status_text.text("✅ 生成完成！")
             
-            # 获取文件大小
+            # 保存路径到 session_state
+            st.session_state.invoice_zip_path = zip_path
+            st.session_state.invoice_zip_name = zip_name
+            
             file_size = os.path.getsize(zip_path)
             file_size_mb = file_size / 1024 / 1024
             
-            # 使用 st.download_button 直接从磁盘流式读取（不加载到内存）
-            # 这样更快，且不会占用内存
             st.success(f"✅ 成功生成 {total_groups} 个文件，压缩包大小: {file_size_mb:.2f} MB")
             
-            # 关键优化：使用 open() 直接传给 download_button，实现流式传输
-            # 注意：这里要用 with，但 download_button 会在后台读取文件
+            # 立即提供下载（使用 HTML 方式）
+            import base64
             with open(zip_path, "rb") as f:
-                st.download_button(
-                    label="📥 点击下载发票压缩包",
-                    data=f,
-                    file_name=zip_name,
-                    mime="application/zip",
-                    key="dl_invoice_final",
-                    use_container_width=True,
-                )
+                data = f.read()
             
-            progress_bar.progress(100)
-            status_text.text("✅ 完成！")
+            b64 = base64.b64encode(data).decode()
+            href = f'<a href="data:application/zip;base64,{b64}" download="{zip_name}" style="display:inline-block;padding:10px 24px;background-color:#2563eb;color:white;text-decoration:none;border-radius:8px;font-weight:600;font-size:16px;">📥 点击下载 ZIP 文件</a>'
+            st.markdown(href, unsafe_allow_html=True)
             
-            # 清理临时文件（后台清理）
-            import threading
-            def cleanup():
-                import time
-                time.sleep(60)  # 等待下载完成
-                try:
-                    shutil.rmtree(tmp_dir, ignore_errors=True)
-                except:
-                    pass
-            threading.Thread(target=cleanup, daemon=True).start()
+            st.info("💡 如果下载按钮无效，请右键链接选择「另存为」")
+            
+            # 清理进度条
+            progress_bar.empty()
+            status_text.empty()
             
         except Exception as e:
             progress_bar.empty()
@@ -659,8 +670,3 @@ if gen_invoice:
             st.error(f"处理过程中发生错误：{str(e)}")
             import traceback
             st.code(traceback.format_exc())
-            # 清理临时文件
-            try:
-                shutil.rmtree(tmp_dir, ignore_errors=True)
-            except:
-                pass
